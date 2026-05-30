@@ -1,52 +1,333 @@
-import { MainLayout } from "@/components/layout/main-layout"
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Search, Filter, ArrowRight } from "lucide-react"
+'use client';
 
-const editais = [
-  {
-    titulo: "Modernização de Bibliotecas Públicas",
-    orgao: "Ministério da Cultura",
-    valor: "R$ 500.000,00",
-    dataLimite: "14/11/2023",
-    status: "Inscrições Abertas",
-    descricao: "Recursos destinados à renovação de acervo e infraestrutura",
-  },
-  {
-    titulo: "Pavimentação de Vias Rurais",
-    orgao: "Ministério do Desenvolvimento Regional",
-    valor: "R$ 1.200.000,00",
-    dataLimite: "19/11/2023",
-    status: "Prorrogado",
-    descricao: "Programa de apoio à infraestrutura viária em áreas rurais",
-  },
-  {
-    titulo: "Inclusão Digital nas Escolas",
-    orgao: "Ministério da Educação",
-    valor: "R$ 300.000,00",
-    dataLimite: "09/11/2023",
-    status: "Em Análise",
-    descricao: "Aquisição de tablets e notebooks para alunos da rede pública",
-  },
-]
+import { useState, useEffect, useCallback } from 'react';
+import { MainLayout } from "@/components/layout/main-layout";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Search, Filter, ArrowRight, RefreshCw, AlertTriangle, FileSpreadsheet, ListChecks, CheckCircle2, ChevronRight, X, AlertCircle, Trash2 } from "lucide-react";
+
+interface Edital {
+  id: string;
+  titulo: string;
+  orgao: string;
+  valor: string;
+  dataLimite: string;
+  status: string;
+  descricao: string;
+  link: string;
+  criadoEm?: string;
+  statusAnalise?: 'pendente' | 'pdf_baixado' | 'analisado' | 'sem_pdf' | 'descartado' | 'erro';
+  erroAnalise?: string;
+  analiseIA?: {
+    resumo: string;
+    objetivo?: string;
+    requisitos: string[];
+    elegibilidade: string;
+    itensFinanciáveis: string[];
+    documentosNecessarios?: string[];
+    criteriosAvaliacao?: string[];
+    pontosFracos?: string[];
+    contatoEdital?: string;
+    scoreAdequacao?: number;
+  };
+  areasTematicas?: string[];
+  tipoProponente?: string[];
+  tipoEdital?: 'chamada_publica' | 'evento_cientifico' | 'outro';
+  modalidade?: string;
+  abrangencia?: string;
+  tecnologiaFoco?: string;
+}
 
 export default function EditaisPage() {
+  const [editais, setEditais] = useState<Edital[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
+  const [analyzing, setAnalyzing] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  
+  // Estados de Filtros
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
+  const [selectedTipos, setSelectedTipos] = useState<string[]>([]);
+  const [selectedTiposEdital, setSelectedTiposEdital] = useState<string[]>([]);
+  
+  // Estado para ordenação
+  const [ordenacao, setOrdenacao] = useState<'recentes' | 'antigos'>('recentes');
+
+  // Estado para Edital Selecionado na IA
+  const [editalSelecionado, setEditalSelecionado] = useState<Edital | null>(null);
+
+  // Carrega os editais do banco local
+  const fetchEditais = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/editais');
+      if (!res.ok) throw new Error('Falha ao recuperar dados dos editais.');
+      const data = await res.json();
+      setEditais(data);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Carrega editais da pasta downloads na inicialização
+  const carregarDownloads = useCallback(async () => {
+    try {
+      const res = await fetch('/api/editais/carregar-downloads');
+      if (res.ok) {
+        const data = await res.json();
+        console.log('Downloads carregados:', data);
+        // Atualiza os editais após carregar downloads
+        await fetchEditais();
+      }
+    } catch (err) {
+      console.error('Erro ao carregar downloads:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    carregarDownloads();
+  }, [carregarDownloads]);
+
+  // Dispara busca ativa / IA scraper
+  const handleBuscarEditais = async () => {
+    setSearching(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/editais/busca', { method: 'POST' });
+      if (!res.ok) throw new Error('Erro no processo de busca ativa.');
+      const data = await res.json();
+      if (data.success) {
+        setEditais(data.editais);
+        fetchEditais(); // Atualiza para pegar as mudanças de status da IA no backend
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  // Re-analisa um edital manualmente
+  const handleAnalisarEdital = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setAnalyzing(id);
+    try {
+      const res = await fetch('/api/editais/analisar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (res.ok) {
+        await fetchEditais();
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Erro ao analisar edital.');
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setAnalyzing(null);
+    }
+  };
+
+  // Deleta um edital do banco e remove PDFs
+  const handleDeletarEdital = async (id: string, titulo: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (!confirm(`Tem certeza que deseja deletar "${titulo}"? Isso também removerá o PDF.`)) {
+      return;
+    }
+
+    setDeleting(id);
+    try {
+      const res = await fetch('/api/editais/deletar', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      
+      if (res.ok) {
+        const data = await res.json();
+        setError(null);
+        await fetchEditais();
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Erro ao deletar edital.');
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  // Lógica de manipulação de filtros de checkbox
+  const handleAreaChange = (area: string) => {
+    setSelectedAreas(prev => 
+      prev.includes(area) ? prev.filter(a => a !== area) : [...prev, area]
+    );
+  };
+
+  const handleTipoChange = (tipo: string) => {
+    setSelectedTipos(prev => 
+      prev.includes(tipo) ? prev.filter(t => t !== tipo) : [...prev, tipo]
+    );
+  };
+
+  const handleTipoEditalChange = (tipo: string) => {
+    setSelectedTiposEdital(prev => 
+      prev.includes(tipo) ? prev.filter(t => t !== tipo) : [...prev, tipo]
+    );
+  };
+
+  // Filtra localmente os editais
+  const editaisFiltrados = editais.filter(edital => {
+    if (edital.statusAnalise === 'descartado') return false; // Esconde os descartados
+
+    const matchSearch = 
+      edital.titulo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      edital.orgao.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      edital.descricao.toLowerCase().includes(searchTerm.toLowerCase());
+      
+    // Áreas do IA se existirem, senão fallback simples
+    const matchArea = selectedAreas.length === 0 || selectedAreas.some(area => {
+      if (edital.areasTematicas && edital.areasTematicas.length > 0) {
+         return edital.areasTematicas.some(a => a.toLowerCase().includes(area.toLowerCase()));
+      }
+      const t = edital.titulo.toLowerCase() + ' ' + edital.descricao.toLowerCase();
+      if (area === "Saúde") return t.includes('saúde') || t.includes('médico') || t.includes('hospital');
+      if (area === "Educação") return t.includes('escola') || t.includes('educação') || t.includes('ensino') || t.includes('universidade');
+      if (area === "Cultura") return t.includes('cultura') || t.includes('biblioteca') || t.includes('museu') || t.includes('patrimônio');
+      if (area === "Infraestrutura") return t.includes('via') || t.includes('pavimentação') || t.includes('infraestrutura') || t.includes('construção');
+      if (area === "Esporte") return t.includes('esporte') || t.includes('quadra') || t.includes('poliesportiva');
+      return false;
+    });
+
+    const matchTipo = selectedTipos.length === 0 || selectedTipos.some(tipo => {
+      if (edital.tipoProponente && edital.tipoProponente.length > 0) {
+        return edital.tipoProponente.some(t => t.toLowerCase().includes(tipo.toLowerCase()));
+      }
+      const o = edital.orgao.toLowerCase();
+      if (tipo === "Federal") return o.includes('ministério') || o.includes('finep') || o.includes('cnpq');
+      if (tipo === "Estadual") return o.includes('secretaria') || o.includes('fapesp') || o.includes('estadual');
+      if (tipo === "ONG") return edital.descricao.toLowerCase().includes('ong') || edital.descricao.toLowerCase().includes('terceiro setor');
+      return true;
+    });
+
+    // Filtro por tipo de edital (Evento, TI, etc)
+    const matchTipoEdital = selectedTiposEdital.length === 0 || selectedTiposEdital.some(tipoFiltro => {
+      if (tipoFiltro === "Evento") {
+        return edital.tipoEdital === 'evento_cientifico' || 
+               edital.titulo.toLowerCase().includes('congresso') ||
+               edital.titulo.toLowerCase().includes('seminário') ||
+               edital.titulo.toLowerCase().includes('conferência') ||
+               edital.titulo.toLowerCase().includes('workshop');
+      }
+      if (tipoFiltro === "TI") {
+        return edital.tecnologiaFoco && (
+          edital.tecnologiaFoco.includes('Software') ||
+          edital.tecnologiaFoco.includes('Cloud') ||
+          edital.tecnologiaFoco.includes('Machine Learning') ||
+          edital.tecnologiaFoco.includes('Desenvolvimento')
+        ) ||
+        edital.titulo.toLowerCase().includes('software') ||
+        edital.titulo.toLowerCase().includes('tecnologia') ||
+        edital.titulo.toLowerCase().includes('programação') ||
+        edital.titulo.toLowerCase().includes('sistema');
+      }
+      if (tipoFiltro === "Pesquisa") {
+        return edital.tipoEdital === 'chamada_publica' ||
+               edital.titulo.toLowerCase().includes('pesquisa') ||
+               edital.titulo.toLowerCase().includes('bolsa') ||
+               edital.titulo.toLowerCase().includes('investigação');
+      }
+      return true;
+    });
+
+    return matchSearch && matchArea && matchTipo && matchTipoEdital;
+  }).sort((a, b) => {
+    // Ordenar por data de lançamento
+    const dataA = new Date(a.criadoEm || a.dataLimite || 0).getTime();
+    const dataB = new Date(b.criadoEm || b.dataLimite || 0).getTime();
+    
+    if (ordenacao === 'recentes') {
+      return dataB - dataA; // Mais recentes primeiro
+    } else {
+      return dataA - dataB; // Mais antigos primeiro
+    }
+  });
+
   return (
     <MainLayout>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-        {/* Header */}
-        <div>
-          <h2 className="dashboard-title">Explorar Editais</h2>
-          <p className="dashboard-subtitle">
-            Encontre oportunidades de captação abertas em todo o país
-          </p>
+        
+        {/* Header com Ação Premium de Recarga/Busca IA */}
+        <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }} className="flex justify-between items-center">
+          <div>
+            <h2 className="dashboard-title">Explorar Editais</h2>
+            <p className="dashboard-subtitle">
+              Encontre oportunidades reais de captação abertas com análise inteligente por IA
+            </p>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '0.75rem' }}>
+            <Button 
+              variant="outline" 
+              onClick={fetchEditais} 
+              disabled={loading || searching}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+            >
+              <RefreshCw className={loading ? "animate-spin" : ""} style={{ width: '0.875rem', height: '0.875rem' }} />
+              Atualizar
+            </Button>
+            
+            {/* Botão de Busca Inteligente desativado */}
+            {/* <Button 
+              onClick={handleBuscarEditais} 
+              disabled={searching}
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '0.5rem', 
+                background: 'linear-gradient(135deg, var(--color-primary), #4f46e5)',
+                color: 'white',
+                border: 'none',
+                boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)'
+              }}
+            >
+              <RefreshCw className={searching ? "animate-spin" : ""} style={{ width: '0.875rem', height: '0.875rem' }} />
+              {searching ? 'Buscando & Analisando IA...' : 'Disparar Busca Inteligente'}
+            </Button> */}
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '1.5rem' }}>
-          {/* Filters Sidebar */}
-          <div className="filters-sidebar">
+        {error && (
+          <div style={{ 
+            backgroundColor: '#fef2f2', 
+            border: '1px solid #fee2e2', 
+            borderRadius: 'var(--radius-md)', 
+            padding: '1rem', 
+            color: 'var(--color-danger)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            <AlertTriangle style={{ width: '1.25rem', height: '1.25rem' }} />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+          
+          {/* Sidebar de Filtros */}
+          <div className="filters-sidebar" style={{ width: '280px', flexShrink: 0 }}>
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-sm">
@@ -55,12 +336,13 @@ export default function EditaisPage() {
                 </div>
               </CardHeader>
               <CardContent style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                
                 <div className="filters-section">
                   <label className="filters-section-title">Busca Rápida</label>
                   <div style={{ position: 'relative' }}>
                     <Search style={{
                       position: 'absolute',
-                      left: '0.5rem',
+                      left: '0.75rem',
                       top: '50%',
                       transform: 'translateY(-50%)',
                       width: '0.875rem',
@@ -70,7 +352,9 @@ export default function EditaisPage() {
                     <Input
                       type="text"
                       placeholder="Palavra-chave..."
-                      style={{ paddingLeft: '2rem' }}
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      style={{ paddingLeft: '2.25rem' }}
                     />
                   </div>
                 </div>
@@ -80,8 +364,12 @@ export default function EditaisPage() {
                   <div className="checkbox-group">
                     {["Saúde", "Educação", "Cultura", "Infraestrutura", "Esporte"].map(
                       (area) => (
-                        <label key={area} className="checkbox-item">
-                          <input type="checkbox" />
+                        <label key={area} className="checkbox-item" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', cursor: 'pointer' }}>
+                          <input 
+                            type="checkbox" 
+                            checked={selectedAreas.includes(area)}
+                            onChange={() => handleAreaChange(area)}
+                          />
                           {area}
                         </label>
                       )
@@ -90,86 +378,457 @@ export default function EditaisPage() {
                 </div>
 
                 <div className="filters-section">
-                  <label className="filters-section-title">Tipo de Instituição</label>
-                  <div className="checkbox-group">
-                    {["Federal", "Estadual", "Privada", "ONG"].map((tipo) => (
-                      <label key={tipo} className="checkbox-item">
-                        <input type="checkbox" />
-                        {tipo}
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                   <label className="filters-section-title">Tipo de Instituição</label>
+                   <div className="checkbox-group">
+                     {["Federal", "Estadual", "ONG", "Universidade"].map((tipo) => (
+                       <label key={tipo} className="checkbox-item" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', cursor: 'pointer' }}>
+                         <input 
+                           type="checkbox" 
+                           checked={selectedTipos.includes(tipo)}
+                           onChange={() => handleTipoChange(tipo)}
+                         />
+                         {tipo}
+                       </label>
+                     ))}
+                   </div>
+                 </div>
 
-                <Button className="w-full">Aplicar Filtros</Button>
+                 <div className="filters-section">
+                   <label className="filters-section-title">Tipo de Edital</label>
+                   <div className="checkbox-group">
+                     {["Evento", "TI", "Pesquisa"].map((tipo) => (
+                       <label key={tipo} className="checkbox-item" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', cursor: 'pointer' }}>
+                         <input 
+                           type="checkbox" 
+                           checked={selectedTiposEdital.includes(tipo)}
+                           onChange={() => handleTipoEditalChange(tipo)}
+                         />
+                         {tipo}
+                       </label>
+                     ))}
+                   </div>
+                 </div>
+
+                 <div className="filters-section">
+                   <label className="filters-section-title">Ordenação</label>
+                   <div style={{ display: 'flex', gap: '0.5rem' }}>
+                     <Button 
+                       variant={ordenacao === 'recentes' ? 'default' : 'outline'}
+                       size="sm"
+                       onClick={() => setOrdenacao('recentes')}
+                       style={{ flex: 1 }}
+                     >
+                       Recentes
+                     </Button>
+                     <Button 
+                       variant={ordenacao === 'antigos' ? 'default' : 'outline'}
+                       size="sm"
+                       onClick={() => setOrdenacao('antigos')}
+                       style={{ flex: 1 }}
+                     >
+                       Antigos
+                     </Button>
+                   </div>
+                 </div>
+                 
+                 {(searchTerm || selectedAreas.length > 0 || selectedTipos.length > 0 || selectedTiposEdital.length > 0) && (
+                   <Button 
+                     variant="ghost" 
+                     size="sm" 
+                     onClick={() => {
+                       setSearchTerm('');
+                       setSelectedAreas([]);
+                       setSelectedTipos([]);
+                       setSelectedTiposEdital([]);
+                     }}
+                     style={{ color: 'var(--color-danger)' }}
+                   >
+                     Limpar Filtros
+                   </Button>
+                 )}
               </CardContent>
             </Card>
           </div>
 
-          {/* Editais Grid */}
-          <div style={{ flex: 1 }}>
-            <div className="editais-grid">
-              {editais.map((edital, index) => (
-                <Card key={index} style={{ display: 'flex', flexDirection: 'column' }}>
-                  <CardHeader>
-                    <div className="flex items-center justify-between" style={{ marginBottom: '0.5rem' }}>
-                      <Badge
-                        variant={
-                          edital.status === "Inscrições Abertas"
-                            ? "success"
-                            : edital.status === "Prorrogado"
-                            ? "warning"
-                            : "default"
-                        }
-                      >
-                        {edital.status}
-                      </Badge>
-                      <Button variant="ghost" size="sm">
-                        <svg
-                          style={{ width: '1rem', height: '1rem' }}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"
-                          />
-                        </svg>
-                      </Button>
-                    </div>
-                    <CardTitle style={{ fontSize: 'var(--font-size-lg)', lineHeight: 1.2 }}>
-                      {edital.titulo}
-                    </CardTitle>
-                    <p className="text-sm text-gray-600" style={{ marginTop: '0.25rem' }}>{edital.orgao}</p>
-                  </CardHeader>
-                  <CardContent style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <p className="text-sm text-gray-600 line-clamp-3" style={{ marginBottom: '1rem' }}>
-                      {edital.descricao}
-                    </p>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600">Valor:</span>
-                        <span className="font-medium">{edital.valor}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600">Data Limite:</span>
-                        <span className="font-medium">{edital.dataLimite}</span>
-                      </div>
-                    </div>
-                    <Button variant="outline" className="w-full">
-                      Ver Projetos de Referência
-                      <ArrowRight style={{ width: '1rem', height: '1rem', marginLeft: '0.5rem' }} />
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+          {/* Grid de Editais Encontrados */}
+          <div style={{ flex: 1, minWidth: '320px' }}>
+            
+            {loading ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 0', gap: '1rem' }}>
+                <RefreshCw className="animate-spin" style={{ width: '2.5rem', height: '2.5rem', color: 'var(--color-primary)' }} />
+                <p className="text-gray-600">Carregando editais reais do banco...</p>
+              </div>
+            ) : searching ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '4rem 0', gap: '1rem', textAlign: 'center' }}>
+                <RefreshCw className="animate-spin" style={{ width: '3rem', height: '3rem', color: 'var(--color-primary)' }} />
+                <h4 style={{ fontWeight: 600, fontSize: '1.25rem' }}>Buscando e Dividindo Editais em Chunks...</h4>
+                <p className="text-gray-600" style={{ maxWidth: '450px' }}>
+                  A inteligência artificial do Capta+ está baixando os editais abertos, extraindo o conteúdo textual do PDF e analisando requisitos obrigatórios e itens financiáveis.
+                </p>
+              </div>
+            ) : editaisFiltrados.length === 0 ? (
+              <Card style={{ padding: '3rem', textAlign: 'center' }}>
+                <FileSpreadsheet style={{ width: '3rem', height: '3rem', margin: '0 auto 1rem', color: 'var(--color-gray-400)' }} />
+                <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, marginBottom: '0.5rem' }}>Nenhum Edital Aberto Encontrado</h3>
+                <p className="text-gray-600" style={{ maxWidth: '400px', margin: '0 auto 1.5rem' }}>
+                  Nenhum edital com os filtros selecionados ou no momento estão fechados.
+                </p>
+              </Card>
+            ) : (
+              <div className="editais-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
+                {editaisFiltrados.map((edital) => {
+                  const isAnalisado = edital.statusAnalise === 'analisado';
+                  const isErro = edital.statusAnalise === 'erro';
+                  const isPendente = edital.statusAnalise === 'pendente' || edital.statusAnalise === 'pdf_baixado';
+                  const score = edital.analiseIA?.scoreAdequacao;
+                  
+                  return (
+                    <Card key={edital.id} style={{ display: 'flex', flexDirection: 'column', height: '100%', transition: 'all 0.2s', border: isAnalisado ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--color-gray-200)' }}>
+                      <CardHeader>
+                        <div className="flex items-center justify-between" style={{ marginBottom: '0.5rem', display: 'flex', justifyContent: 'space-between' }}>
+                          <Badge variant="success">
+                            {edital.status}
+                          </Badge>
+                          
+                          {/* Badges de Análise */}
+                          {isAnalisado ? (
+                            <Badge variant="default" style={{ backgroundColor: 'rgba(37, 99, 235, 0.1)', color: 'var(--color-primary)', border: '1px solid rgba(37, 99, 235, 0.2)' }}>
+                              ✨ IA ({score || 0}%)
+                            </Badge>
+                          ) : isErro ? (
+                            <Badge variant="danger" style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                              <AlertCircle style={{ width: '0.75rem', height: '0.75rem' }} /> Falha IA
+                            </Badge>
+                          ) : isPendente ? (
+                            <Badge variant="default" style={{ backgroundColor: 'transparent', color: 'var(--color-warning)', border: '1px solid var(--color-warning)' }}>
+                              <RefreshCw className="animate-spin" style={{ width: '0.75rem', height: '0.75rem', marginRight: '0.25rem' }} /> Pendente
+                            </Badge>
+                          ) : (
+                            <Badge variant="default" style={{ backgroundColor: 'transparent', color: 'var(--color-gray-600)', border: '1px solid var(--color-gray-300)' }}>Não Analisado</Badge>
+                          )}
+                        </div>
+                        
+                        <CardTitle style={{ fontSize: 'var(--font-size-lg)', lineHeight: 1.25, minHeight: '2.5rem' }}>
+                          {edital.titulo}
+                        </CardTitle>
+                        <p className="text-sm text-gray-600" style={{ marginTop: '0.25rem' }}>{edital.orgao}</p>
+                      </CardHeader>
+                      
+                      <CardContent style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'between' }}>
+                        <p className="text-sm text-gray-600 line-clamp-3" style={{ marginBottom: '1.5rem', flexGrow: 1 }}>
+                          {edital.analiseIA?.resumo || edital.descricao}
+                        </p>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem', borderTop: '1px dashed var(--color-gray-200)', paddingTop: '1rem' }}>
+                          <div className="flex items-center justify-between text-sm" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span className="text-gray-600">Valor Estimado:</span>
+                            <span className="font-semibold text-gray-900 line-clamp-1 text-right" style={{ maxWidth: '60%' }} title={edital.valor}>{edital.valor}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span className="text-gray-600">Data de Fechamento:</span>
+                            <span className="font-semibold text-gray-900" style={{ color: 'var(--color-warning)' }}>{edital.dataLimite}</span>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {isAnalisado ? (
+                            <>
+                              <Button 
+                                variant="default" 
+                                className="w-full"
+                                onClick={() => setEditalSelecionado(edital)}
+                                style={{
+                                  flex: 1,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '0.25rem',
+                                  fontWeight: 500,
+                                  background: 'var(--color-primary)',
+                                  color: 'white',
+                                  border: 'none'
+                                }}
+                              >
+                                Ver Catálogo IA
+                                <ArrowRight style={{ width: '0.875rem', height: '0.875rem' }} />
+                              </Button>
+                              <Button 
+                                variant="outline"
+                                onClick={(e) => handleDeletarEdital(edital.id, edital.titulo, e)}
+                                disabled={deleting === edital.id}
+                                style={{ 
+                                  flex: 0,
+                                  padding: '0.5rem',
+                                  color: 'var(--color-danger)',
+                                  borderColor: 'var(--color-danger)'
+                                }}
+                                title="Deletar este edital"
+                              >
+                                <Trash2 style={{ width: '1rem', height: '1rem' }} />
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button 
+                                variant="outline" 
+                                className="w-full"
+                                onClick={() => setEditalSelecionado(edital)}
+                                style={{ flex: 1, padding: '0 0.5rem' }}
+                              >
+                                Detalhes
+                              </Button>
+                              <Button 
+                                variant="outline"
+                                onClick={(e) => handleAnalisarEdital(edital.id, e)}
+                                disabled={analyzing === edital.id}
+                                style={{ flex: 1, padding: '0 0.5rem', backgroundColor: '#f1f5f9' }}
+                              >
+                                {analyzing === edital.id ? 'Analisando...' : 'Analisar'}
+                              </Button>
+                              <Button 
+                                variant="outline"
+                                onClick={(e) => handleDeletarEdital(edital.id, edital.titulo, e)}
+                                disabled={deleting === edital.id}
+                                style={{ 
+                                  flex: 0,
+                                  padding: '0.5rem',
+                                  color: 'var(--color-danger)',
+                                  borderColor: 'var(--color-danger)'
+                                }}
+                                title="Deletar este edital"
+                              >
+                                <Trash2 style={{ width: '1rem', height: '1rem' }} />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+        </div>
+
+      </div>
+
+      {/* Modal/Drawer Elegante de Análise da IA do Edital */}
+      {editalSelecionado && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.4)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+          padding: '1.5rem'
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: 'var(--radius-lg)',
+            width: '100%',
+            maxWidth: '900px',
+            maxHeight: '90vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            overflow: 'hidden',
+            border: '1px solid var(--color-gray-200)'
+          }}>
+            
+            {/* Header Modal */}
+            <div style={{
+              padding: '1.5rem',
+              borderBottom: '1px solid var(--color-gray-100)',
+              display: 'flex',
+              justifyContent: 'between',
+              alignItems: 'start',
+              position: 'relative'
+            }}>
+              <div style={{ paddingRight: '2rem' }}>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                  <Badge variant="success">{editalSelecionado.status}</Badge>
+                  <Badge variant="default" style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: 'var(--color-success)', border: 'none' }}>
+                    Data Limite: {editalSelecionado.dataLimite}
+                  </Badge>
+                  {editalSelecionado.modalidade && (
+                     <Badge variant="default" style={{ backgroundColor: 'transparent', color: 'var(--color-gray-700)', border: '1px solid var(--color-gray-300)' }}>{editalSelecionado.modalidade}</Badge>
+                  )}
+                  {editalSelecionado.analiseIA?.scoreAdequacao && (
+                     <Badge variant="default" style={{ backgroundColor: 'rgba(37, 99, 235, 0.1)', color: 'var(--color-primary)', border: '1px solid rgba(37, 99, 235, 0.2)' }}>
+                        Compatibilidade: {editalSelecionado.analiseIA.scoreAdequacao}%
+                     </Badge>
+                  )}
+                </div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-gray-900)', lineHeight: 1.3 }}>
+                  {editalSelecionado.titulo}
+                </h3>
+                <p className="text-sm text-gray-600" style={{ marginTop: '0.25rem' }}>{editalSelecionado.orgao}</p>
+              </div>
+              
+              <button 
+                onClick={() => setEditalSelecionado(null)}
+                style={{
+                  position: 'absolute',
+                  top: '1.5rem',
+                  right: '1.5rem',
+                  border: 'none',
+                  background: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--color-gray-400)',
+                  padding: '0.25rem',
+                  borderRadius: '50%',
+                }}
+              >
+                <X style={{ width: '1.25rem', height: '1.25rem' }} />
+              </button>
             </div>
+
+            {/* Corpo Scrollable */}
+            <div style={{ padding: '1.5rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              
+              {/* Seção Resumo do edital */}
+              <div>
+                <h4 style={{ fontWeight: 600, color: 'var(--color-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <ListChecks style={{ width: '1.1rem', height: '1.1rem', color: 'var(--color-primary)' }} />
+                  Visão Geral do Edital
+                </h4>
+                <p className="text-sm text-gray-600" style={{ lineHeight: 1.6 }}>
+                  {editalSelecionado.analiseIA?.resumo || editalSelecionado.descricao}
+                </p>
+                {editalSelecionado.analiseIA?.objetivo && (
+                  <div style={{ marginTop: '0.5rem', padding: '0.75rem', backgroundColor: '#f8fafc', borderRadius: 'var(--radius-md)', fontSize: '0.875rem' }}>
+                    <strong>Objetivo:</strong> {editalSelecionado.analiseIA.objetivo}
+                  </div>
+                )}
+              </div>
+
+              {/* Seção Elegibilidade e Dados Principais */}
+              <div style={{ backgroundColor: 'var(--color-gray-50)', padding: '1rem', borderRadius: 'var(--radius-md)' }}>
+                <h4 style={{ fontWeight: 600, color: 'var(--color-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                  <CheckCircle2 style={{ width: '1.1rem', height: '1.1rem', color: 'var(--color-success)' }} />
+                  Quem Pode Participar (Elegibilidade)
+                </h4>
+                <p className="text-sm text-gray-600" style={{ lineHeight: 1.5 }}>
+                  {editalSelecionado.analiseIA?.elegibilidade || 'Detalhes pendentes.'}
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginTop: '1rem', fontSize: '0.875rem' }}>
+                   {editalSelecionado.areasTematicas && editalSelecionado.areasTematicas.length > 0 && (
+                     <div><strong>Áreas:</strong> {editalSelecionado.areasTematicas.join(', ')}</div>
+                   )}
+                   {editalSelecionado.abrangencia && (
+                     <div><strong>Abrangência:</strong> {editalSelecionado.abrangencia}</div>
+                   )}
+                </div>
+              </div>
+
+              {/* Grid 2 colunas para Requisitos e Itens Financiáveis */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
+                
+                <div>
+                  <h4 style={{ fontWeight: 600, color: 'var(--color-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    <ChevronRight style={{ width: '1.1rem', height: '1.1rem', color: 'var(--color-primary)' }} />
+                    Requisitos Obrigatórios
+                  </h4>
+                  <ul style={{ paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {(editalSelecionado.analiseIA?.requisitos || [
+                      'Análise IA não concluída.'
+                    ]).map((req, i) => (
+                      <li key={i} className="text-sm text-gray-600" style={{ lineHeight: 1.4 }}>{req}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div>
+                  <h4 style={{ fontWeight: 600, color: 'var(--color-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                    <ChevronRight style={{ width: '1.1rem', height: '1.1rem', color: 'var(--color-success)' }} />
+                    Itens Financiáveis
+                  </h4>
+                  <ul style={{ paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {(editalSelecionado.analiseIA?.itensFinanciáveis || [
+                      'Análise IA não concluída.'
+                    ]).map((item, i) => (
+                      <li key={i} className="text-sm text-gray-600" style={{ lineHeight: 1.4 }}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              {/* Documentos e Alertas */}
+              {editalSelecionado.analiseIA?.pontosFracos && editalSelecionado.analiseIA.pontosFracos.length > 0 && (
+                <div style={{ backgroundColor: '#fef2f2', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid #fee2e2' }}>
+                  <h4 style={{ fontWeight: 600, color: 'var(--color-danger)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <AlertTriangle style={{ width: '1.1rem', height: '1.1rem' }} />
+                    Pontos de Atenção / Alertas
+                  </h4>
+                  <ul style={{ paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    {editalSelecionado.analiseIA.pontosFracos.map((p, i) => (
+                      <li key={i} className="text-sm text-gray-700">{p}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+            </div>
+
+            {/* Footer Modal */}
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              borderTop: '1px solid var(--color-gray-100)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: '0.75rem',
+              backgroundColor: 'var(--color-gray-50)'
+            }}>
+              <Button 
+                variant="outline" 
+                onClick={(e) => {
+                  if (editalSelecionado) {
+                    handleDeletarEdital(editalSelecionado.id, editalSelecionado.titulo, e as any);
+                    setEditalSelecionado(null);
+                  }
+                }}
+                disabled={deleting === editalSelecionado?.id}
+                style={{ 
+                  color: 'var(--color-danger)',
+                  borderColor: 'var(--color-danger)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                <Trash2 style={{ width: '1rem', height: '1rem' }} />
+                Deletar Edital
+              </Button>
+
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <Button variant="outline" onClick={() => setEditalSelecionado(null)}>
+                  Fechar
+                </Button>
+                <a href={editalSelecionado.link} target="_blank" rel="noopener noreferrer">
+                  <Button style={{
+                    background: 'var(--color-primary)',
+                    color: 'white',
+                    border: 'none'
+                  }}>
+                    Ir para o Portal Oficial
+                  </Button>
+                </a>
+              </div>
+            </div>
+
           </div>
         </div>
-      </div>
+      )}
     </MainLayout>
-  )
+  );
 }
+

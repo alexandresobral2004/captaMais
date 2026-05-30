@@ -14,6 +14,7 @@
 
 # production
 /build
+/build-output.log
 
 # misc
 .DS_Store
@@ -26,6 +27,7 @@ yarn-error.log*
 
 # local env files
 .env*.local
+env.local
 
 # vercel
 .vercel
@@ -33,4 +35,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# logs
+/logs/
+
+# backups
+/backup_*/
+backuo.sh
+backup.sh
+
+# temporary files
+/scratch/
+
+# pdf downloads
+/data/downloads/
 

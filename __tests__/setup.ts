@@ -18,6 +18,7 @@ export function createTestDb() {
       valor_min REAL,
       valor_max REAL,
       data_publicacao TEXT,
+      data_abertura TEXT,
       data_limite TEXT NOT NULL,
       data_resultado TEXT,
       status TEXT NOT NULL DEFAULT 'Aberto',
@@ -167,6 +168,36 @@ export function createTestDb() {
     );
   `);
 
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS projetos (
+      id TEXT PRIMARY KEY,
+      edital_id TEXT NOT NULL,
+      titulo TEXT NOT NULL,
+      descricao TEXT,
+      area_atuacao TEXT,
+      proposta_usuario TEXT,
+      resumo_executivo TEXT,
+      justificativa TEXT,
+      objetivos TEXT,
+      metodologia TEXT,
+      resultados_esperados TEXT,
+      cronograma TEXT,
+      orcamento_detalhado TEXT,
+      valor_solicitado REAL,
+      prazo_meses INTEGER,
+      equipe TEXT,
+      criterios_atendidos TEXT,
+      criterios_pendentes TEXT,
+      score_compliance INTEGER,
+      status TEXT DEFAULT 'rascunho',
+      versao INTEGER DEFAULT 1,
+      prompt_original TEXT,
+      criado_em TEXT DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (edital_id) REFERENCES editais(id) ON DELETE CASCADE
+    );
+  `);
+
   // FTS5 for SearchRepository tests
   sqlite.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS editais_fts USING fts5(
@@ -214,6 +245,7 @@ export function clearAllTables(rawDb: Database.Database) {
   rawDb.exec('DELETE FROM palavras_chave');
   rawDb.exec('DELETE FROM arquivos_anexos');
   rawDb.exec('DELETE FROM motivos_pontuacao');
+  rawDb.exec('DELETE FROM projetos');
   rawDb.exec('DELETE FROM editais');
 }
 

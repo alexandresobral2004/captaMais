@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { buscarEditaisPortais } from '@/lib/scraper/fetcher';
 import fs from 'fs';
 import path from 'path';
@@ -6,6 +6,7 @@ import { analisarEditalComIA } from '@/lib/ai/analyzer';
 import { calcularPontuacaoEdital } from '@/lib/ai/scoring';
 import { baixarELerPDFEdital, OpcoesDownload } from '@/lib/scraper/pdf-downloader';
 import { saveEdital, Edital } from '@/lib/db/editais-store';
+import { verificarAdmin } from '@/lib/api/auth';
 
 function slugify(input: string): string {
   return input
@@ -49,7 +50,13 @@ function updateManifest(nomeArquivo: string, data: Record<string, any>) {
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  // Verificar se é admin
+  const auth = verificarAdmin(request);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
     const tempoInicio = Date.now();
     console.log('🚀 API: Iniciando busca consolidada de editais TI em 4 portais...');

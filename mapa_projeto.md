@@ -1,7 +1,7 @@
 # 🗺️ Mapa do Projeto - CaptaMais
 
 **Data:** 29 de Maio de 2026  
-**Status:** ✅ Sistema Operacional com Melhorias de Confiabilidade
+**Status:** ✅ Sistema Operacional com Integração Tavily MCP
 
 ---
 
@@ -130,6 +130,16 @@ Construir um sistema automatizado e inteligente para:
 - ✅ Detecção de eventos científicos (congressos, seminários, workshops)
 - ✅ Whitelist expandida com contexto institucional e acadêmico
 
+### Fase 16: Arquitetura v3.0 - Busca Somente via Script
+- ✅ Interface `/editais` exibe SOMENTE editais já cadastrados no banco
+- ✅ NÃO executa buscas automáticas na inicialização
+- ✅ NÃO inicia worker automático em background (editais-store.ts desabilitado)
+- ✅ NÃO inicia scheduler automático na inicialização
+- ✅ Novo fluxo: `fetchEditais()` apenas carrega do banco local
+- ✅ Busca de novos editais é EXCLUSIVAMENTE via script `./scripts/buscar-editais.sh`
+- ✅ Arquivo `carregar-downloads/route.ts` disponível para uso manual (opcional)
+- ✅ Cronjob pode agendar execução automática (0 8 * * 1) se desejar
+
 ---
 
 ## 🐛 Correções Recentes (v2.5)
@@ -213,11 +223,40 @@ Exibida ao final de cada busca semanal:
 
 ---
 
-## 🚀 Fluxo Operacional
+## 🚀 Fluxo Operacional v3.0
+
+### Importante: Busca Somente via Script
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                          ARQUITETURA v3.0                            │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  Interface Web (/editais)                                            │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ • Exibe SOMENTE editais JÁ CADASTRADOS no banco             │    │
+│  │ • NÃO executa buscas automaticamente na inicialização       │    │
+│  │ • Botão "Atualizar" apenas recarrega do banco               │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                              │                                       │
+│                              │ (nunca executa scraping)              │
+│                              ▼                                       │
+│  Script buscar-editais.sh ← ÚNICO ponto de entrada para buscas      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │ • Executa busca nos 5 portais                               │    │
+│  │ • Classifica com IA                                         │    │
+│  │ • Salva editais no banco                                    │    │
+│  │ • Interface exibe resultados posteriormente                  │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Execução via Script (ÚNICO caminho para novas buscas)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ 1. SEGUNDA-FEIRA 08:00 - Agendador Cron Dispara        │
+│ 1. Executar: ./scripts/buscar-editais.sh               │
+│    (ou via cron: 0 8 * * 1)                            │
 └────────────────┬────────────────────────────────────────┘
                  │
                  ▼
@@ -318,15 +357,78 @@ Exibida ao final de cada busca semanal:
 
 ---
 
-## 🔐 Credenciais & Configuração
+## 🌍 Serviços Externos & API Keys
 
-### .env.local
-```
+### Resumo de Serviços Pagos/Externos
+
+| Serviço | Uso no Sistema | Plano | Custo Estimado |
+|---------|---------------|-------|----------------|
+| **OpenAI** | Classificação IA, análise de editais, geração de projetos | Pay-as-you-go | ~$0.01-0.50/1K tokens |
+| **Tavily** | Busca de dados para fundamentar projetos (via MCP) | Free Tier | 1000 buscas/mês |
+| **LlamaCloud** | Extração de texto de PDFs (LlamaParse) | Pay-as-you-go | ~$0.003/página |
+| **OpenRouter** | Alternative LLM routing (backup) | Pay-as-you-go | Variável por modelo |
+| **Prosas** | Portal de editais (autenticação OAuth2) | Free | N/A |
+
+---
+
+### Detalhamento por Serviço
+
+#### 1. OpenAI (PRINCIPAL)
+**Uso:** Classificação IA, análise de editais, geração de propostas
+- `lib/ai/classifier.ts` - Classificação com GPT-4o-mini (≥70% confiança)
+- `lib/ai/analyzer.ts` - Análise com 7 prompts estruturados
+- `lib/ai/writer.ts` - Geração de projetos via GPT-4o
+- Modelo: `gpt-4o-mini` (padrão), `gpt-4o` (análise completa)
+- **Custo:** Depende do volume de editais processados
+
+#### 2. Tavily (MCP Integration)
+**Uso:** Busca de dados reais na web para fundamentar projetos
+- `lib/ai/tavily-mcp.client.ts` - Cliente MCP para Tavily
+- Ferramenta: `tavily-search` via Model Context Protocol
+- Injetado no prompt para dar grounding aos projetos gerados
+- **Custo:** Free tier de 1000 buscas/mês (suficiente para desenvolvimento)
+
+#### 3. LlamaCloud (LlamaParse)
+**Uso:** Extração de texto de PDFs complexos/escaneados
+- `lib/scraper/pdf-downloader.ts` - Usa LlamaParse como estratégia fallback
+- `lib/scraper/pdf-extractor.ts` - Alternative extraction method
+- **Custo:** $0.003/página processada
+
+#### 4. OpenRouter
+**Uso:** Alternative LLM routing (não ativo atualmente)
+- `lib/ai/writer.ts` - Configurado como backup opcional
+- API key presente em `.env.local`
+- **Custo:** Variável por modelo (modelos mais baratos disponíveis)
+
+#### 5. Prosas
+**Uso:** Portal de editais com autenticação OAuth2
+- `lib/scraper/prosas-scraper.ts` - Login + busca via API
+- Credenciais configuradas em `.env.local`
+- **Custo:** Free (credenciais próprias)
+
+---
+
+### Variáveis de Ambiente (.env.local)
+
+```bash
+# OpenAI (obrigatório para IA)
+OPENAI_API_KEY=sk-proj-...
+
+# OpenRouter (backup opcional)
+OPENROUTER_API_KEY=sk-or-v1-...
+
+# Tavily MCP (busca web para projetos)
+TAVILY_API_KEY=tvly-dev-...
+
+# LlamaCloud (extração PDF)
+LLAMA_CLOUD_API_KEY=llx-...
+
+# Prosas (portal editais)
 PROSAS_EMAIL=alexandresobral2004@gmail.com
 PROSAS_PASSWORD=P@ssw0rd
-OPENAI_API_KEY=sk-...
-NEXT_PUBLIC_API_URL=http://localhost:3000
 ```
+
+---
 
 ### Secrets (não commitados)
 - Não armazenar em git
@@ -336,6 +438,41 @@ NEXT_PUBLIC_API_URL=http://localhost:3000
 ---
 
 ## 📝 Log de Alterações Recentes
+
+### v3.2 (31/05/2026) - Integração Tavily MCP + Novo Prompt
+- **Add:** Integração Tavily via MCP (Model Context Protocol)
+- **Add:** Cliente MCP `lib/ai/tavily-mcp.client.ts`
+- **Add:** Campo `fontes` no schema de projetos para referências
+- **Add:** Nova seção "Serviços Externos" na documentação
+- **Change:** Prompt de geração de projetos atualizado com:
+  - Estrutura "ATUE COMO" + "A TAREFA"
+  - Restrições "ANTI-IA" (clichês proibidos)
+  - Variação sintática e tom impessoal
+  - Seções: Título, Justificativa, Objetivos, Metodologia, Resultados, Sustentabilidade, Fontes
+- **Change:** `ProposalWriter` agora busca dados via Tavily MCP antes de gerar projetos
+- **Change:** writer.ts agora usa `buscarDadosProjetoMCP()` em vez de busca direta
+- **Add:** SDK `@modelcontextprotocol/sdk` instalado
+- **Custo:** Tavily free tier (1000 buscas/mês)
+
+### v3.1 (31/05/2026) - Correções e UI
+- **Fix:** `params.then is not a function` - params não é Promise no Next.js 14
+- **Fix:** `criteriosAtendidos.map is not a function` - JSON parse normalizado no service
+- **Fix:** elegibilidade pode vir como objeto, string ou array (normalizado)
+- **Change:** Textareas de seção aumentadas para 1200px (50 linhas visíveis)
+- **Change:** Removido sistema de expand/collapse das seções (tudo visível)
+- **Add:** Botão "Copiar" em cada seção
+
+### v3.0 (30/05/2026) - Arquitetura Busca Somente via Script
+- **Change:** Interface `/editais` NÃO faz mais buscas automáticas na inicialização
+- **Change:** Removido `useEffect` → `carregarDownloads()` do page.tsx
+- **Change:** `fetchEditais()` agora apenas carrega do banco (comportamento esperado)
+- **Change:** Worker background DESABILITADO (editais-store.ts: linhas 12-33 comentadas)
+- **Change:** Scheduler automático DESABILITADO na inicialização
+- **Add:** Script `./scripts/buscar-editais.sh` é o ÚNICO ponto de entrada para novas buscas
+- **Add:** Documentação atualizada com nova arquitetura
+- **Fix:** Rota `carregar-downloads` disponível para uso manual se necessário
+- **Benefit:** Evita carregamentos inesperados de editais ao acessar a interface
+- **Benefit:** Sistema não faz mais buscas em background sem solicitação
 
 ### v2.6 (29/05/2026) - Robustez Definitiva
 - **Fix:** Resposta OpenAI incompleta → fallback automático (sem pedir confirmação)
@@ -390,5 +527,5 @@ NEXT_PUBLIC_API_URL=http://localhost:3000
 
 ---
 
-**Última atualização:** 29 de Maio de 2026  
-**Próxima revisão:** 02 de Junho de 2026
+**Última atualização:** 31 de Maio de 2026  
+**Próxima revisão:** 06 de Junho de 2026

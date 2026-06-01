@@ -84,6 +84,7 @@ export function createTables() {
       valor_min REAL,
       valor_max REAL,
       data_publicacao TEXT,
+      data_abertura TEXT,
       data_limite TEXT NOT NULL,
       data_resultado TEXT,
       status TEXT NOT NULL DEFAULT 'Aberto',
@@ -246,6 +247,36 @@ export function createTables() {
     );
   `);
 
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS projetos (
+      id TEXT PRIMARY KEY,
+      edital_id TEXT NOT NULL,
+      titulo TEXT NOT NULL,
+      descricao TEXT,
+      area_atuacao TEXT,
+      proposta_usuario TEXT,
+      resumo_executivo TEXT,
+      justificativa TEXT,
+      objetivos TEXT,
+      metodologia TEXT,
+      resultados_esperados TEXT,
+      cronograma TEXT,
+      orcamento_detalhado TEXT,
+      valor_solicitado REAL,
+      prazo_meses INTEGER,
+      equipe TEXT,
+      criterios_atendidos TEXT,
+      criterios_pendentes TEXT,
+      score_compliance INTEGER,
+      status TEXT DEFAULT 'rascunho',
+      versao INTEGER DEFAULT 1,
+      prompt_original TEXT,
+      criado_em TEXT DEFAULT CURRENT_TIMESTAMP,
+      atualizado_em TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (edital_id) REFERENCES editais(id) ON DELETE CASCADE
+    );
+  `);
+
   // Criar indices
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_editais_status ON editais(status);`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_editais_data_limite ON editais(data_limite);`);
@@ -255,6 +286,9 @@ export function createTables() {
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_editais_criado_em ON editais(criado_em);`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_palavras_edital ON palavras_chave(edital_id);`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_arquivos_edital ON arquivos_anexos(edital_id);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_projetos_edital_id ON projetos(edital_id);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_projetos_status ON projetos(status);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_projetos_criado_em ON projetos(criado_em);`);
 
   // Setup FTS
   setupFTS();
@@ -267,11 +301,32 @@ export function createTables() {
 function migrateSchema() {
   try {
     const columns = sqlite.prepare("PRAGMA table_info(editais)").all() as any[];
-    const hasConfiancaPorCampo = columns.some((col: any) => col.name === 'confianca_por_campo');
 
+    const hasDataAbertura = columns.some((col: any) => col.name === 'data_abertura');
+    if (!hasDataAbertura) {
+      sqlite.exec(`ALTER TABLE editais ADD COLUMN data_abertura TEXT`);
+      console.log('✅ Migração: coluna data_abertura adicionada');
+    }
+
+    const hasConfiancaPorCampo = columns.some((col: any) => col.name === 'confianca_por_campo');
     if (!hasConfiancaPorCampo) {
       sqlite.exec(`ALTER TABLE editais ADD COLUMN confianca_por_campo TEXT`);
       console.log('✅ Migração: coluna confianca_por_campo adicionada');
+    }
+
+    // Migração: adicionar coluna codigo na tabela editais
+    const hasCodigo = columns.some((col: any) => col.name === 'codigo');
+    if (!hasCodigo) {
+      sqlite.exec(`ALTER TABLE editais ADD COLUMN codigo TEXT UNIQUE`);
+      console.log('✅ Migração: coluna codigo adicionada à tabela editais');
+    }
+
+    // Migração: adicionar coluna fontes na tabela projetos
+    const projColumns = sqlite.prepare("PRAGMA table_info(projetos)").all() as any[];
+    const hasFontes = projColumns.some((col: any) => col.name === 'fontes');
+    if (!hasFontes) {
+      sqlite.exec(`ALTER TABLE projetos ADD COLUMN fontes TEXT`);
+      console.log('✅ Migração: coluna fontes adicionada à tabela projetos');
     }
   } catch (error: any) {
     // Coluna já existe ou outro erro irrelevante — silenciar

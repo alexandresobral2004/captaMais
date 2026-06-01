@@ -1,4 +1,3 @@
-import { runBackgroundWorker } from '../scraper/worker';
 import { TecnologiaFoco, TipoFerramenta } from '../scraper/filtros-ti';
 import { EditalRepository, CreateEditalDTO } from '../database/repositories/edital.repository';
 import { AnaliseRepository, CreateAnaliseDTO } from '../database/repositories/analise.repository';
@@ -7,30 +6,32 @@ import { eq, or, gte, and } from 'drizzle-orm';
 import { editais as editaisTable } from '../database/schema';
 
 // ============================================================
-// INICIALIZAÇÃO DO DAEMON (mantida)
+// INICIALIZAÇÃO DO DAEMON (DESABILITADA v3.0)
 // ============================================================
-if (typeof window === 'undefined') {
-  const globalAny: any = globalThis;
-  if (!globalAny.__editalWorkerStarted) {
-    globalAny.__editalWorkerStarted = true;
-    console.log('⚙️ Inicializando Daemon de Busca de Editais em Segundo Plano...');
-
-    try {
-      const { iniciarScheduler } = require('../jobs/scheduler');
-      iniciarScheduler();
-    } catch (erro) {
-      console.warn('⚠️ Erro ao iniciar scheduler:', erro);
-    }
-
-    setTimeout(() => {
-      runBackgroundWorker();
-    }, 15000);
-
-    setInterval(() => {
-      runBackgroundWorker();
-    }, 30 * 60 * 1000);
-  }
-}
+// ATENÇÃO: Busca automática desabilitada. Usar ./scripts/buscar-editais.sh
+// 
+// if (typeof window === 'undefined') {
+//   const globalAny: any = globalThis;
+//   if (!globalAny.__editalWorkerStarted) {
+//     globalAny.__editalWorkerStarted = true;
+//     console.log('⚙️ Inicializando Daemon de Busca de Editais em Segundo Plano...');
+// 
+//     try {
+//       const { iniciarScheduler } = require('../jobs/scheduler');
+//       iniciarScheduler();
+//     } catch (erro) {
+//       console.warn('⚠️ Erro ao iniciar scheduler:', erro);
+//     }
+// 
+//     setTimeout(() => {
+//       runBackgroundWorker();
+//     }, 15000);
+// 
+//     setInterval(() => {
+//       runBackgroundWorker();
+//     }, 30 * 60 * 1000);
+//   }
+// }
 
 // ============================================================
 // INTERFACE EDITAL (mantida - backward compatibility)
@@ -39,12 +40,14 @@ export interface Edital {
   id: string;
   titulo: string;
   orgao: string;
+  codigo?: string;
 
   valor: string;
   valorMin?: number;
   valorMax?: number;
 
   dataPublicacao?: string;
+  dataAbertura?: string;
   dataLimite: string;
   dataResultado?: string;
 
@@ -194,10 +197,12 @@ function dbToEdital(row: any, analise?: any): Edital {
     id: row.id,
     titulo: row.titulo,
     orgao: row.orgao,
+    codigo: row.codigo ?? undefined,
     valor: row.valor || '',
     valorMin: row.valorMin ?? undefined,
     valorMax: row.valorMax ?? undefined,
     dataPublicacao: row.dataPublicacao ?? undefined,
+    dataAbertura: row.dataAbertura ?? undefined,
     dataLimite: row.dataLimite,
     dataResultado: row.dataResultado ?? undefined,
     status: (row.status || 'Aberto') as Edital['status'],
@@ -285,6 +290,7 @@ function editalToDb(edital: Partial<Edital>): CreateEditalDTO {
     valorMin: edital.valorMin,
     valorMax: edital.valorMax,
     dataPublicacao: edital.dataPublicacao,
+    dataAbertura: edital.dataAbertura,
     dataLimite: edital.dataLimite || '',
     dataResultado: edital.dataResultado,
     status: edital.status,
@@ -360,8 +366,13 @@ export async function saveEdital(edital: Partial<Edital> & { id: string }): Prom
   try {
     const dbData = editalToDb(edital);
 
-    // Buscar existente para merge
-    const existente = await repo.findById(edital.id);
+    // Buscar existente para merge (IGNORAR deletados)
+    let existente = await repo.findByIdNotDeleted(edital.id);
+
+    // Se não encontrou por ID, tentar por link (para scrapers que geram ID por hash do link)
+    if (!existente && dbData.link) {
+      existente = await repo.findByLinkNotDeleted(dbData.link);
+    }
 
     let resultado: any;
 
@@ -377,7 +388,7 @@ export async function saveEdital(edital: Partial<Edital> & { id: string }): Prom
         valor: dbData.valor ?? existente.valor ?? undefined,
         statusAnalise: dbData.statusAnalise || existente.statusAnalise || undefined,
       };
-      resultado = await repo.update(edital.id, merged);
+      resultado = await repo.update(existente.id, merged);
     } else {
       resultado = await repo.create(dbData);
     }

@@ -32,11 +32,11 @@ export class EditalService {
       });
     }
 
-    return this.editalRepo.findAll(query);
+    return this.editalRepo.findAllNotDeleted(query);
   }
 
   async buscarPorId(id: string) {
-    const edital = await this.editalRepo.findByIdWithRelations(id);
+    const edital = await this.editalRepo.findByIdNotDeleted(id);
     if (!edital) return null;
 
     // Buscar analise separadamente
@@ -67,7 +67,7 @@ export class EditalService {
   }
 
   async atualizar(id: string, data: Partial<CreateEditalDTO>) {
-    const existente = await this.editalRepo.findById(id);
+    const existente = await this.editalRepo.findByIdNotDeleted(id);
     if (!existente) {
       throw new Error(`Edital ${id} nao encontrado`);
     }
@@ -76,7 +76,7 @@ export class EditalService {
   }
 
   async deletar(id: string) {
-    const edital = await this.editalRepo.findById(id);
+    const edital = await this.editalRepo.findByIdNotDeleted(id);
     if (!edital) {
       throw new Error(`Edital ${id} nao encontrado`);
     }
@@ -86,16 +86,16 @@ export class EditalService {
       await this.fileService.deletarArquivo(edital.pdfPath);
     }
 
-    // 2. Deletar analise e palavras-chave
+    // 2. Deletar analise e palavras-chave (dados derivados - hard delete)
     await Promise.all([
       this.analiseRepo.delete(id),
       this.palavraChaveRepo.delete(id),
     ]);
 
-    // 3. Deletar edital (cascade deleta o resto)
-    await this.editalRepo.delete(id);
+    // 3. Soft-delete do edital (marca como deleted, não remove do banco)
+    await this.editalRepo.softDelete(id);
 
-    return edital;
+    return { ...edital, deletedAt: new Date().toISOString() };
   }
 
   async buscarPorIdComPdf(id: string) {

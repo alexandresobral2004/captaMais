@@ -2,16 +2,21 @@
 
 ################################################################################
 #                                                                              #
-#           SCRIPT DE BUSCA DE EDITAIS - CaptaMais v2.9                      #
+#           SCRIPT DE BUSCA DE EDITAIS - CaptaMais v3.0                      #
 #                                                                              #
-#  Busca, baixa PDFs e prepara editais para análise manual com IA            #
+#  ÚNICO ponto de entrada para busca de novos editais.                      #
+#  A interface web (/editais) apenas exibe editais JÁ CADASTRADOS.           #
 #                                                                              #
-#  NOVO FLUXO (v2.9):                                                         #
-#    1. Buscar editais no Proras                                              #
-#    2. Baixar PDFs originais (S3 > Link > HTML)                              #
-#    3. Extrair texto dos PDFs                                                #
-#    4. Armazenar com status PENDENTE                                         #
-#    5. Usuário clica "Analisar" para usar IA                                 #
+#  FLUXO (v3.0):                                                              #
+#    1. Buscar editais nos 5 portais (Prosas, FINEP, CNPq, CAPES, MCT)      #
+#    2. Classificar com IA (confiança ≥70%)                                   #
+#    3. Baixar PDFs originais (S3 > Link > HTML)                              #
+#    4. Extrair texto dos PDFs                                                #
+#    5. Salvar com status PENDENTE                                            #
+#    6. Usuário analisa manualmente via UI                                    #
+#                                                                              #
+#  AVISO: A página /editais NÃO faz buscas automáticas na inicialização.    #
+#         Para buscar novos editais, use este script EXCLUSIVAMENTE.          #
 #                                                                              #
 #  Uso:                                                                       #
 #    ./scripts/buscar-editais.sh              # Execução manual              #
@@ -71,23 +76,41 @@ log() {
 show_help() {
     cat << EOF
 ╔════════════════════════════════════════════════════════════════╗
-║          BUSCA DE EDITAIS - CaptaMais v2.9                    ║
-║     Busca → Baixa PDFs → Extrai Texto → Pendente Análise      ║
+║          BUSCA DE EDITAIS - CaptaMais v3.0                    ║
+║     Busca → Baixa PDFs → Extrai Texto → Análise Manual        ║
 ╚════════════════════════════════════════════════════════════════╝
 
 DESCRIÇÃO:
-  Script para buscar editais no Prosas, baixar PDFs originais,
+  Script para buscar editais nos 5 portais brasileiros, baixar PDFs,
   extrair texto e preparar para análise manual com IA.
 
-NOVO FLUXO (v2.9):
-  1. ✅ Busca 50 editais no portal Proras
-  2. ✅ Baixa PDFs (S3 > Link direto > Página web)
-  3. ✅ Extrai texto dos PDFs
-  4. ✅ Armazena com status PENDENTE
-  5. ⏳ Usuário revisa lista
-  6. ⏳ Usuário clica "Excluir" para inúteis
+  IMPORTANTE: A página /editais NÃO faz buscas automáticas.
+  Este script é o ÚNICO ponto de entrada para novas buscas.
+
+FLUXO (v3.0):
+  1. ✅ Busca editais nos 5 portais (Prosas, FINEP, CNPq, CAPES, MCT)
+  2. ✅ Classifica com IA (confiança ≥70%)
+  3. ✅ Baixa PDFs (S3 > Link direto > Página web)
+  4. ✅ Extrai texto dos PDFs
+  5. ✅ Armazena com status PENDENTE
+  6. ⏳ Usuário revisa via interface /editais
   7. ⏳ Usuário clica "Analisar" nos interessantes
   8. ⏳ IA faz análise completa
+
+ARQUITETURA:
+  ┌─────────────────────────────────────────────────────────────┐
+  │  Interface Web (/editais)                                   │
+  │  → Exibe SOMENTE editais já cadastrados no banco           │
+  │  → NÃO executa buscas automáticas na inicialização         │
+  └─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ (via script ONLY)
+  ┌─────────────────────────────────────────────────────────────┐
+  │  buscar-editais.sh                                          │
+  │  → Busca em 5 portais                                       │
+  │  → Salva no banco                                          │
+  │  → Interface exibe resultados                              │
+  └─────────────────────────────────────────────────────────────┘
 
 OPÇÕES:
   --verbose      Exibe logs detalhados no console
@@ -97,7 +120,7 @@ OPÇÕES:
   --help         Mostra esta mensagem
 
 EXEMPLOS:
-  # Execução padrão
+  # Execução padrão (busca em todos os portais)
   ./scripts/buscar-editais.sh
 
   # Com modo verbose (mostra detalhes)
@@ -122,22 +145,22 @@ CONFIGURAÇÃO DO CRON:
 
 APÓS A BUSCA:
   1. Acesse http://localhost:3000/editais
-  2. Veja lista com status PENDENTE
-  3. Revise e exclua editais inúteis (botão lixeira)
-  4. Clique "Analisar" nos que interessam
-  5. IA faz resumo, requisitos, itens financiáveis
+  2. Veja lista de editais com status PENDENTE
+  3. Revise e exclua os que não interessam
+  4. Clique "Analisar" nos que gostaria de estudar
+  5. IA fará análise completa (resumo, requisitos, etc)
   6. Revise resultado clicando "Ver Catálogo IA"
 
 OBSERVAÇÕES:
-  • PDFs originais são armazenados em data/downloads/
+  • Interface web NÃO faz buscas automáticas na inicialização
+  • Este script é o ÚNICO ponto de entrada para novas buscas
+  • PDFs são armazenados em data/downloads/
   • Texto é extraído do PDF real, não da descrição
-  • Análise SÓ acontece quando usuário clica "Analisar"
-  • Sessão Proras expira em 8 horas
-  • Cron re-autentica automaticamente se necessário
+  • Análise IA só acontece quando usuário clica "Analisar"
 
 INFORMAÇÕES:
-  Versão: 2.9
-  Fluxo: Buscar → Baixar → Extrair → Pendente
+  Versão: 3.0
+  Arquitetura: Interface apenas exibe | Script faz buscas
   Status: Análise manual via UI
 
 EOF
@@ -221,9 +244,9 @@ check_server() {
 # Disparar busca via API
 execute_search() {
     log INFO "═══════════════════════════════════════════════════════════════"
-    log INFO "NOVO FLUXO v2.9: Buscar → Baixar PDFs → Extrair Texto"
+    log INFO "FLUXO v3.0: Buscar → Classificar IA → Baixar PDFs → Extrair Texto"
     log INFO "═══════════════════════════════════════════════════════════════"
-    log INFO "Disparando busca de editais no Proras..."
+    log INFO "Disparando busca de editais nos 5 portais..."
     
     if [ "$DRY_RUN" = true ]; then
         log WARNING "[DRY-RUN] Pulando chamada à API (simulação)"
@@ -234,10 +257,10 @@ execute_search() {
     local payload="{\"token\":\"$SCAN_TOKEN\"}"
     
     log INFO "Endpoint: $endpoint"
-    log INFO "Fase 1: Buscando editais no Proras..."
-    log INFO "Fase 2: Baixando PDFs originais..."
-    log INFO "Fase 3: Extraindo texto dos PDFs..."
-    log INFO "Fase 4: Armazenando com status PENDENTE..."
+    log INFO "Fase 1: Buscando editais nos 5 portais..."
+    log INFO "Fase 2: Classificando com IA (confiança ≥70%)..."
+    log INFO "Fase 3: Baixando PDFs originais..."
+    log INFO "Fase 4: Extraindo texto e armazenando..."
     log INFO "Iniciando requisição POST..."
     
     local start_time=$(date +%s)
@@ -383,8 +406,9 @@ main() {
     # Cabeçalho
     echo ""
     echo "╔════════════════════════════════════════════════════════════════╗"
-    echo "║       🚀 BUSCA DE EDITAIS - CaptaMais v2.9                    ║"
+    echo "║       🚀 BUSCA DE EDITAIS - CaptaMais v3.0                    ║"
     echo "║    Buscar → Baixar PDFs → Extrair Texto → Análise Manual      ║"
+    echo "║    ⚠️  Interface /editais NÃO faz buscas automáticas          ║"
     echo "║          Data: $(date '+%d/%m/%Y %H:%M:%S')                       ║"
     echo "╚════════════════════════════════════════════════════════════════╝"
     echo ""
@@ -421,16 +445,14 @@ main() {
     echo "   Editais:       $PROJECT_ROOT/data/editais.json"
     echo "   PDFs:          $PROJECT_ROOT/data/downloads/"
     echo ""
-    echo "📋 PRÓXIMAS AÇÕES:"
-    echo "   1. Acesse: http://localhost:3000/editais"
-    echo "   2. Revise lista de editais (status PENDENTE)"
-    echo "   3. Exclua os que não interessam"
-    echo "   4. Clique 'Analisar' nos que gostaria"
-    echo "   5. Aguarde análise com IA"
+    echo "📋 ACESSE A INTERFACE:"
+    echo "   → http://localhost:3000/editais"
+    echo "   → Veja os editais buscados com status PENDENTE"
     echo ""
-    echo "ℹ️  Para mais detalhes, veja:"
-    echo "   FLUXO_EXCLUSAO_ANALISE.md (exclusão e análise manual)"
-    echo "   FLUXO_EXTRACAO_PDF.md (extração de PDF)"
+    echo "⚠️  LEMBRETE:"
+    echo "   • Interface /editais NÃO faz buscas automáticas"
+    echo "   • Para buscar novos editais, execute este script"
+    echo "   • Cron pode automatizar execução (0 8 * * 1)"
     echo ""
 }
 

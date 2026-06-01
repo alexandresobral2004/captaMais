@@ -40,67 +40,34 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="login-container">
-      <div className="login-card">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
+      <div className="w-full max-w-md">
         {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{ 
-            display: 'inline-flex', 
-            alignItems: 'center', 
-            gap: '0.5rem', 
-            marginBottom: '1rem' 
-          }}>
-            <div style={{
-              width: '2.5rem',
-              height: '2.5rem',
-              backgroundColor: 'var(--color-primary)',
-              borderRadius: 'var(--radius-md)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--color-white)',
-              fontWeight: 'bold',
-              fontSize: 'var(--font-size-lg)'
-            }}>
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-2 mb-4">
+            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">
               C+
             </div>
-            <h1 style={{ 
-              fontSize: 'var(--font-size-3xl)', 
-              fontWeight: 700, 
-              color: 'var(--color-gray-900)' 
-            }}>
-              Capta
+            <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+              Capta<span className="text-blue-600">+</span>
             </h1>
-            <span style={{ 
-              color: 'var(--color-primary)', 
-              fontWeight: 700, 
-              fontSize: 'var(--font-size-3xl)' 
-            }}>
-              +
-            </span>
           </div>
-          <p style={{ color: 'var(--color-gray-600)' }}>
+          <p className="text-slate-600 dark:text-slate-400">
             Gestão inteligente de editais e captação de recursos
           </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle style={{ textAlign: 'center' }}>Acesse sua conta</CardTitle>
-            <CardDescription style={{ textAlign: 'center' }}>
+        <Card className="border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl dark:shadow-none">
+          <CardHeader className="text-center">
+            <CardTitle className="text-2xl font-bold text-slate-900 dark:text-white">Acesse sua conta</CardTitle>
+            <CardDescription className="text-slate-500 dark:text-slate-400">
               Entre com suas credenciais para continuar
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={{ 
-                  fontSize: 'var(--font-size-sm)', 
-                  fontWeight: 500, 
-                  color: 'var(--color-gray-700)',
-                  marginBottom: '0.25rem',
-                  display: 'block'
-                }}>
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                   Email corporativo
                 </label>
                 <Input
@@ -108,33 +75,18 @@ export default function LoginPage() {
                   placeholder="nome@instituicao.gov.br"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  className="dark:bg-slate-950 dark:border-slate-800 dark:text-white dark:placeholder:text-slate-500"
                   required
                 />
               </div>
-              <div>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'space-between',
-                  marginBottom: '0.25rem'
-                }}>
-                  <label style={{ 
-                    fontSize: 'var(--font-size-sm)', 
-                    fontWeight: 500, 
-                    color: 'var(--color-gray-700)' 
-                  }}>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
                     Senha
                   </label>
                   <button
                     type="button"
-                    style={{ 
-                      fontSize: 'var(--font-size-xs)', 
-                      color: 'var(--color-primary)',
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      textDecoration: 'underline'
-                    }}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline bg-transparent border-none cursor-pointer"
                   >
                     Esqueceu a senha?
                   </button>
@@ -143,60 +95,33 @@ export default function LoginPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  className="dark:bg-slate-950 dark:border-slate-800 dark:text-white"
                   required
                 />
               </div>
               {error && (
-                <div style={{
-                  padding: '0.75rem',
-                  backgroundColor: 'var(--color-red-50)',
-                  border: '1px solid var(--color-danger)',
-                  borderRadius: 'var(--radius-md)',
-                  color: 'var(--color-danger)',
-                  fontSize: 'var(--font-size-sm)'
-                }}>
+                <div className="p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-900/50 rounded-md text-red-600 dark:text-red-400 text-sm">
                   {error}
                 </div>
               )}
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full mt-2" disabled={loading}>
                 {loading ? "Entrando..." : "Entrar"}
               </Button>
             </form>
 
-            <div style={{ 
-              position: 'relative', 
-              margin: '1.5rem 0'
-            }}>
-              <div style={{ 
-                position: 'absolute', 
-                inset: 0, 
-                display: 'flex', 
-                alignItems: 'center' 
-              }}>
-                <div style={{ 
-                  width: '100%', 
-                  borderTop: '1px solid var(--color-gray-300)' 
-                }}></div>
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-slate-200 dark:border-slate-800"></div>
               </div>
-              <div style={{ 
-                position: 'relative', 
-                display: 'flex', 
-                justifyContent: 'center', 
-                fontSize: 'var(--font-size-xs)', 
-                textTransform: 'uppercase' 
-              }}>
-                <span style={{ 
-                  backgroundColor: 'var(--color-white)', 
-                  padding: '0 0.5rem', 
-                  color: 'var(--color-gray-500)' 
-                }}>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white dark:bg-slate-900 px-2 text-slate-500 dark:text-slate-400">
                   Ou continue com
                 </span>
               </div>
             </div>
 
-            <Button variant="outline" className="w-full">
-              <svg style={{ width: '1rem', height: '1rem', marginRight: '0.5rem' }} viewBox="0 0 24 24">
+            <Button variant="outline" className="w-full bg-white dark:bg-slate-950 dark:text-white dark:border-slate-800 dark:hover:bg-slate-800">
+              <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24">
                 <path
                   fill="currentColor"
                   d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -218,12 +143,7 @@ export default function LoginPage() {
             </Button>
           </CardContent>
           <CardFooter>
-            <p style={{ 
-              fontSize: 'var(--font-size-xs)', 
-              color: 'var(--color-gray-500)', 
-              textAlign: 'center', 
-              width: '100%' 
-            }}>
+            <p className="text-xs text-slate-500 dark:text-slate-400 text-center w-full">
               Protegido por reCAPTCHA e sujeito à Política de Privacidade
             </p>
           </CardFooter>

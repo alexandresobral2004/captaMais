@@ -3,9 +3,9 @@
 import fs from 'fs';
 import path from 'path';
 import OpenAI from 'openai';
+import { saveEdital } from '../lib/db/editais-store';
 
 const DOWNLOADS_DIR = path.join(process.cwd(), 'data', 'downloads');
-const OUTPUT_FILE = path.join(process.cwd(), 'data', 'resumos-editais.json');
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -125,7 +125,8 @@ async function processarTodos() {
   const files = fs.readdirSync(DOWNLOADS_DIR).filter(f => f.endsWith('.pdf'));
   console.log(`📄 Encontrados ${files.length} PDFs\n`);
 
-  const resumos: EditalResumo[] = [];
+  let processados = 0;
+  let erros = 0;
   
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
@@ -149,23 +150,32 @@ async function processarTodos() {
       console.log('  ↳ Analisando com IA...');
       const analiseIA = await resumirComIA(conteudo, file);
 
-      const resumo: EditalResumo = {
-        arquivo: file,
+      // Salva no banco de dados
+      await saveEdital({
         id,
         titulo,
-        resumo: (analiseIA.resumo as string) || 'Não foi possível gerar resumo',
-        objetivo: analiseIA.objetivo as string,
-        requisitos: (analiseIA.requisitos as string[]) || [],
-        elegibilidade: analiseIA.elegibilidade as string,
-        itensFinanciáveis: (analiseIA.itensFinanciáveis as string[]) || [],
-        documentosNecessarios: (analiseIA.documentosNecessarios as string[]) || [],
-        criteriosAvaliacao: (analiseIA.criteriosAvaliacao as string[]) || [],
-        dataProcessamento: new Date().toISOString(),
-        ...(analiseIA.erroAnalise && { erroAnalise: analiseIA.erroAnalise }),
-      };
+        orgao: id.split('-')[0]?.toUpperCase() || 'DESCONHECIDO',
+        valor: 'A definir',
+        dataLimite: new Date().toISOString().split('T')[0],
+        status: 'Aberto',
+        descricao: (analiseIA.resumo as string) || 'Resumo não disponível',
+        link: `file://${filePath}`,
+        pdfUrl: `file://${filePath}`,
+        pdfSalvoEm: path.relative(process.cwd(), filePath),
+        criadoEm: new Date().toISOString(),
+        analiseIA: {
+          resumo: (analiseIA.resumo as string) || 'Não foi possível gerar resumo',
+          objetivo: (analiseIA.objetivo as string) || '',
+          requisitos: (analiseIA.requisitos as string[]) || [],
+          elegibilidade: (analiseIA.elegibilidade as string) || '',
+          itensFinanciáveis: (analiseIA.itensFinanciáveis as string[]) || [],
+          documentosNecessarios: (analiseIA.documentosNecessarios as string[]) || [],
+          criteriosAvaliacao: (analiseIA.criteriosAvaliacao as string[]) || [],
+        },
+      });
 
-      resumos.push(resumo);
-      console.log(`  ✅ Resumo gerado\n`);
+      processados++;
+      console.log(`  ✅ Salvo no banco de dados\n`);
 
       // Pequeno delay para não sobrecarregar a API
       if (i < files.length - 1) {
@@ -174,26 +184,14 @@ async function processarTodos() {
     } catch (error) {
       const errorMsg = (error as Error).message;
       console.error(`  ❌ ${errorMsg}\n`);
-      
-      resumos.push({
-        arquivo: file,
-        id,
-        titulo,
-        resumo: 'Erro ao processar',
-        dataProcessamento: new Date().toISOString(),
-        erroAnalise: errorMsg,
-      });
+      erros++;
     }
   }
-
-  // Salva os resultados
-  console.log('\n💾 Salvando resultados em:', OUTPUT_FILE);
-  fs.writeFileSync(OUTPUT_FILE, JSON.stringify(resumos, null, 2));
   
   console.log(`\n✨ Processamento concluído!`);
-  console.log(`   ✅ Processados com sucesso: ${resumos.filter(r => !r.erroAnalise).length}`);
-  console.log(`   ❌ Com erros: ${resumos.filter(r => r.erroAnalise).length}`);
-  console.log(`   📁 Arquivo salvo: data/resumos-editais.json`);
+  console.log(`   ✅ Processados com sucesso: ${processados}`);
+  console.log(`   ❌ Com erros: ${erros}`);
+  console.log(`   📁 Dados salvos no banco de dados SQLite`);
 }
 
 // Executa o script

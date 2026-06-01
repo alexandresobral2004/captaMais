@@ -107,6 +107,7 @@ function mapearParaEdital(
 
   // Datas
   if (resultado.datas.publicacao) edital.dataPublicacao = resultado.datas.publicacao;
+  if (resultado.datas.abertura) edital.dataAbertura = resultado.datas.abertura;
   if (resultado.datas.limite) edital.dataLimite = resultado.datas.limite;
   if (resultado.datas.resultado) edital.dataResultado = resultado.datas.resultado;
 

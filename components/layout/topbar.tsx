@@ -6,7 +6,11 @@ import { Search, Bell, User, Settings, LogOut } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 
-export function TopBar() {
+interface TopBarProps {
+  onMobileMenuOpen?: () => void;
+}
+
+export function TopBar({ onMobileMenuOpen }: TopBarProps) {
   const router = useRouter()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -28,145 +32,69 @@ export function TopBar() {
   }, [isMenuOpen])
 
   const handleLogout = () => {
-    // Limpar qualquer sessão/autenticação aqui se necessário
     router.push("/")
   }
 
   return (
-    <div className="topbar">
+    <header className="topbar">
       {/* Search */}
-      <div style={{ flex: 1, maxWidth: '24rem', position: 'relative' }}>
-        <Search style={{
-          position: 'absolute',
-          left: '0.75rem',
-          top: '50%',
-          transform: 'translateY(-50%)',
-          color: 'var(--color-gray-400)',
-          width: '1rem',
-          height: '1rem'
-        }} />
+      <div className="flex-1 max-w-xl relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
         <Input
           type="text"
           placeholder="Buscar editais, projetos ou usuários..."
-          style={{ paddingLeft: '2.5rem' }}
+          className="pl-10"
         />
       </div>
 
       {/* User Info */}
-      <div className="flex items-center gap-lg">
-        <Button variant="ghost" size="sm" style={{ position: 'relative' }}>
-          <Bell style={{ width: '1rem', height: '1rem' }} />
-          <span style={{
-            position: 'absolute',
-            top: 0,
-            right: 0,
-            width: '0.5rem',
-            height: '0.5rem',
-            backgroundColor: 'var(--color-danger)',
-            borderRadius: 'var(--radius-full)'
-          }}></span>
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="sm" className="relative">
+          <Bell className="w-4 h-4" />
+          <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full" />
         </Button>
-        <div style={{ height: '2rem', width: '1px', backgroundColor: 'var(--color-gray-200)' }}></div>
-        <div style={{ position: 'relative' }} ref={menuRef}>
+        <div className="hidden sm:block h-8 w-px bg-slate-200 dark:bg-slate-700" />
+        <div className="relative" ref={menuRef}>
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="flex items-center gap-md"
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: '0.25rem'
-            }}
+            className="flex items-center gap-3 bg-transparent border-0 cursor-pointer p-1"
           >
-            <div style={{ textAlign: 'right' }}>
-              <p className="text-sm font-medium text-gray-900">
+            <div className="hidden sm:block text-right">
+              <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                 Prefeitura Municipal de Exemplo
               </p>
-              <p className="text-xs text-gray-600">Gestor Administrativo</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Gestor Administrativo</p>
             </div>
-            <div style={{
-              width: '2.5rem',
-              height: '2.5rem',
-              borderRadius: 'var(--radius-full)',
-              backgroundColor: 'var(--color-gray-200)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}>
-              <User style={{ width: '1.25rem', height: '1.25rem', color: 'var(--color-gray-600)' }} />
+            <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+              <User className="w-5 h-5 text-slate-500 dark:text-slate-400" />
             </div>
           </button>
 
           {/* Dropdown Menu */}
           {isMenuOpen && (
-            <div style={{
-              position: 'absolute',
-              top: '3rem',
-              right: 0,
-              backgroundColor: 'var(--color-white)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--radius-md)',
-              boxShadow: 'var(--shadow-lg)',
-              width: '14rem',
-              overflow: 'hidden',
-              zIndex: 20
-            }}>
+            <div className="absolute top-12 right-0 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg w-56 overflow-hidden z-20">
               <button
                 onClick={() => {
                   router.push("/configuracoes")
                   setIsMenuOpen(false)
                 }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: 'var(--font-size-sm)',
-                  color: 'var(--color-gray-700)',
-                  cursor: 'pointer',
-                  width: '100%',
-                  textAlign: 'left',
-                  background: 'none',
-                  border: 'none',
-                  transition: 'background-color 0.15s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--color-gray-50)'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                className="flex items-center gap-2 w-full px-3 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-left bg-transparent border-0 cursor-pointer"
               >
-                <Settings style={{ width: '1rem', height: '1rem' }} />
+                <Settings className="w-4 h-4" />
                 <span>Alterar dados</span>
               </button>
-              <div style={{
-                height: '1px',
-                backgroundColor: 'var(--border-color)',
-                margin: '0.25rem 0'
-              }}></div>
+              <div className="h-px bg-slate-200 dark:bg-slate-700 my-1" />
               <button
                 onClick={handleLogout}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: 'var(--font-size-sm)',
-                  color: 'var(--color-danger)',
-                  cursor: 'pointer',
-                  width: '100%',
-                  textAlign: 'left',
-                  background: 'none',
-                  border: 'none',
-                  transition: 'background-color 0.15s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--color-gray-50)'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                className="flex items-center gap-2 w-full px-3 py-2.5 text-sm text-red-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-left bg-transparent border-0 cursor-pointer"
               >
-                <LogOut style={{ width: '1rem', height: '1rem' }} />
+                <LogOut className="w-4 h-4" />
                 <span>Sair</span>
               </button>
             </div>
           )}
         </div>
       </div>
-    </div>
+    </header>
   )
 }

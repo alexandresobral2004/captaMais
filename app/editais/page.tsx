@@ -17,6 +17,7 @@ interface Edital {
   status: string;
   descricao: string;
   link: string;
+  codigo?: string;
   criadoEm?: string;
   statusAnalise?: 'pendente' | 'pdf_baixado' | 'analisado' | 'sem_pdf' | 'descartado' | 'erro';
   erroAnalise?: string;
@@ -60,6 +61,10 @@ export default function EditaisPage() {
   // Estado para Edital Selecionado na IA
   const [editalSelecionado, setEditalSelecionado] = useState<Edital | null>(null);
 
+  // Estado para edição dinâmica de campos do modal
+  const [requisitosEditados, setRequisitosEditados] = useState<string[]>([]);
+  const [itensFinanciaveisEditados, setItensFinanciaveisEditados] = useState<string[]>([]);
+
   // Carrega os editais do banco local
   const fetchEditais = async () => {
     setLoading(true);
@@ -76,24 +81,21 @@ export default function EditaisPage() {
     }
   };
 
-  // Carrega editais da pasta downloads na inicialização
-  const carregarDownloads = useCallback(async () => {
-    try {
-      const res = await fetch('/api/editais/carregar-downloads');
-      if (res.ok) {
-        const data = await res.json();
-        console.log('Downloads carregados:', data);
-        // Atualiza os editais após carregar downloads
-        await fetchEditais();
-      }
-    } catch (err) {
-      console.error('Erro ao carregar downloads:', err);
-    }
+  // Busca editais apenas do banco de dados (NÃO faz scraping automático)
+  useEffect(() => {
+    fetchEditais();
   }, []);
 
+  // Sincroniza campos editáveis quando edital selecionado muda
   useEffect(() => {
-    carregarDownloads();
-  }, [carregarDownloads]);
+    if (editalSelecionado?.analiseIA) {
+      setRequisitosEditados(editalSelecionado.analiseIA.requisitos || []);
+      setItensFinanciaveisEditados(editalSelecionado.analiseIA.itensFinanciáveis || []);
+    } else {
+      setRequisitosEditados([]);
+      setItensFinanciaveisEditados([]);
+    }
+  }, [editalSelecionado]);
 
   // Dispara busca ativa / IA scraper
   const handleBuscarEditais = async () => {
@@ -147,14 +149,11 @@ export default function EditaisPage() {
 
     setDeleting(id);
     try {
-      const res = await fetch('/api/editais/deletar', {
+      const res = await fetch(`/api/v1/editais/${id}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
       });
       
       if (res.ok) {
-        const data = await res.json();
         setError(null);
         await fetchEditais();
       } else {
@@ -509,7 +508,14 @@ export default function EditaisPage() {
                         </div>
                         
                         <CardTitle style={{ fontSize: 'var(--font-size-lg)', lineHeight: 1.25, minHeight: '2.5rem' }}>
-                          {edital.titulo}
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            {edital.codigo && (
+                              <Badge variant="default" style={{ fontSize: '0.65rem', padding: '0.125rem 0.375rem', fontWeight: 600, backgroundColor: 'var(--color-gray-100)', color: 'var(--color-gray-600)', border: '1px solid var(--color-gray-300)' }}>
+                                {edital.codigo}
+                              </Badge>
+                            )}
+                            <span style={{ flex: 1 }}>{edital.titulo}</span>
+                          </span>
                         </CardTitle>
                         <p className="text-sm text-gray-600" style={{ marginTop: '0.25rem' }}>{edital.orgao}</p>
                       </CardHeader>
@@ -731,33 +737,189 @@ export default function EditaisPage() {
 
               {/* Grid 2 colunas para Requisitos e Itens Financiáveis */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
-                
+
+                {/* Requisitos Obrigatórios */}
                 <div>
                   <h4 style={{ fontWeight: 600, color: 'var(--color-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
                     <ChevronRight style={{ width: '1.1rem', height: '1.1rem', color: 'var(--color-primary)' }} />
                     Requisitos Obrigatórios
                   </h4>
-                  <ul style={{ paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {(editalSelecionado.analiseIA?.requisitos || [
-                      'Análise IA não concluída.'
-                    ]).map((req, i) => (
-                      <li key={i} className="text-sm text-gray-600" style={{ lineHeight: 1.4 }}>{req}</li>
+                  <ul style={{ paddingLeft: '0', display: 'flex', flexDirection: 'column', gap: '0.5rem', listStyle: 'none' }}>
+                    {requisitosEditados.length === 0 && (
+                      <li className="text-sm text-gray-600" style={{ lineHeight: 1.4, fontStyle: 'italic' }}>
+                        Nenhum requisito adicionado.
+                      </li>
+                    )}
+                    {requisitosEditados.map((req, i) => (
+                      <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => setRequisitosEditados(prev => prev.filter((_, idx) => idx !== i))}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: 'var(--color-danger)',
+                            padding: '2px 4px',
+                            fontSize: '1rem',
+                            lineHeight: 1,
+                            minWidth: '20px',
+                            minHeight: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}
+                          title="Remover"
+                        >
+                          −
+                        </button>
+                        <span className="text-sm text-gray-600" style={{ lineHeight: 1.4 }}>{req}</span>
+                      </li>
                     ))}
                   </ul>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                    <input
+                      type="text"
+                      placeholder="Novo requisito..."
+                      id="novo-requisito"
+                      style={{
+                        flex: 1,
+                        padding: '0.375rem 0.625rem',
+                        border: '1px solid var(--color-gray-300)',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: '0.875rem',
+                        outline: 'none',
+                        backgroundColor: 'var(--color-background)'
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const input = e.currentTarget;
+                          const val = input.value.trim();
+                          if (val) {
+                            setRequisitosEditados(prev => [...prev, val]);
+                            input.value = '';
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        const input = document.getElementById('novo-requisito') as HTMLInputElement;
+                        const val = input.value.trim();
+                        if (val) {
+                          setRequisitosEditados(prev => [...prev, val]);
+                          input.value = '';
+                        }
+                      }}
+                      style={{
+                        padding: '0.375rem 0.75rem',
+                        backgroundColor: 'var(--color-primary)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 'var(--radius-md)',
+                        cursor: 'pointer',
+                        fontSize: '0.875rem',
+                        fontWeight: 500,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem'
+                      }}
+                    >
+                      + Adicionar
+                    </button>
+                  </div>
                 </div>
 
+                {/* Itens Financiáveis */}
                 <div>
                   <h4 style={{ fontWeight: 600, color: 'var(--color-gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
                     <ChevronRight style={{ width: '1.1rem', height: '1.1rem', color: 'var(--color-success)' }} />
                     Itens Financiáveis
                   </h4>
-                  <ul style={{ paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {(editalSelecionado.analiseIA?.itensFinanciáveis || [
-                      'Análise IA não concluída.'
-                    ]).map((item, i) => (
-                      <li key={i} className="text-sm text-gray-600" style={{ lineHeight: 1.4 }}>{item}</li>
+                  <ul style={{ paddingLeft: '0', display: 'flex', flexDirection: 'column', gap: '0.5rem', listStyle: 'none' }}>
+                    {itensFinanciaveisEditados.length === 0 && (
+                      <li className="text-sm text-gray-600" style={{ lineHeight: 1.4, fontStyle: 'italic' }}>
+                        Nenhum item adicionado.
+                      </li>
+                    )}
+                    {itensFinanciaveisEditados.map((item, i) => (
+                      <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                        <button
+                          onClick={() => setItensFinanciaveisEditados(prev => prev.filter((_, idx) => idx !== i))}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: 'var(--color-danger)',
+                            padding: '2px 4px',
+                            fontSize: '1rem',
+                            lineHeight: 1,
+                            minWidth: '20px',
+                            minHeight: '20px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0
+                          }}
+                          title="Remover"
+                        >
+                          −
+                        </button>
+                        <span className="text-sm text-gray-600" style={{ lineHeight: 1.4 }}>{item}</span>
+                      </li>
                     ))}
                   </ul>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+                    <input
+                      type="text"
+                      placeholder="Novo item..."
+                      id="novo-item"
+                      style={{
+                        flex: 1,
+                        padding: '0.375rem 0.625rem',
+                        border: '1px solid var(--color-gray-300)',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: '0.875rem',
+                        outline: 'none',
+                        backgroundColor: 'var(--color-background)'
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const input = e.currentTarget;
+                          const val = input.value.trim();
+                          if (val) {
+                            setItensFinanciaveisEditados(prev => [...prev, val]);
+                            input.value = '';
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        const input = document.getElementById('novo-item') as HTMLInputElement;
+                        const val = input.value.trim();
+                        if (val) {
+                          setItensFinanciaveisEditados(prev => [...prev, val]);
+                          input.value = '';
+                        }
+                      }}
+                      style={{
+                        padding: '0.375rem 0.75rem',
+                        backgroundColor: 'var(--color-success)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 'var(--radius-md)',
+                        cursor: 'pointer',
+                        fontSize: '0.875rem',
+                        fontWeight: 500,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.25rem'
+                      }}
+                    >
+                      + Adicionar
+                    </button>
+                  </div>
                 </div>
               </div>
 

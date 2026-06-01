@@ -16,6 +16,7 @@ export const editais = sqliteTable('editais', {
 
   // Datas
   dataPublicacao: text('data_publicacao'),
+  dataAbertura: text('data_abertura'),
   dataLimite: text('data_limite').notNull(),
   dataResultado: text('data_resultado'),
 
@@ -73,6 +74,10 @@ export const editais = sqliteTable('editais', {
   // Timestamps
   criadoEm: text('criado_em').default('CURRENT_TIMESTAMP'),
   atualizadoEm: text('atualizado_em').default('CURRENT_TIMESTAMP'),
+  deletedAt: text('deleted_at'), // NULL = ativo, timestamp = deletado (soft-delete)
+
+  // Codigo de identificacao (EDT-001, EDT-002, etc.)
+  codigo: text('codigo').unique(),
 }, (table) => {
   return {
     statusIdx: index('idx_editais_status').on(table.status),
@@ -81,6 +86,7 @@ export const editais = sqliteTable('editais', {
     scoreIdx: index('idx_editais_score').on(table.scoreRelevancia),
     tecnologiaIdx: index('idx_editais_tecnologia').on(table.tecnologiaFoco),
     criadoEmIdx: index('idx_editais_criado_em').on(table.criadoEm),
+    deletedAtIdx: index('idx_editais_deleted_at').on(table.deletedAt),
   };
 });
 
@@ -277,6 +283,69 @@ export const usuarios = sqliteTable('usuarios', {
   criadoEm: text('criado_em').default('CURRENT_TIMESTAMP'),
   atualizadoEm: text('atualizado_em').default('CURRENT_TIMESTAMP'),
 });
+
+// ============================================================
+// TABELA PROJETOS
+// ============================================================
+export const projetos = sqliteTable('projetos', {
+  id: text('id').primaryKey(),
+  editalId: text('edital_id').notNull().references(() => editais.id, { onDelete: 'cascade' }),
+  titulo: text('titulo').notNull(),
+  descricao: text('descricao'),
+  areaAtuacao: text('area_atuacao'),
+
+  // Campo do usuario (proposta livre)
+  propostaUsuario: text('proposta_usuario'),
+
+  // Secoes geradas pela IA
+  resumoExecutivo: text('resumo_executivo'),
+  justificativa: text('justificativa'),
+  objetivos: text('objetivos'),
+  metodologia: text('metodologia'),
+  resultadosEsperados: text('resultados_esperados'),
+  cronograma: text('cronograma'),
+  orcamentoDetalhado: text('orcamento_detalhado'),
+
+  // Financeiro
+  valorSolicitado: real('valor_solicitado'),
+  prazoMeses: integer('prazo_meses'),
+  equipe: text('equipe'), // JSON array serializado
+
+  // Compliance
+  criteriosAtendidos: text('criterios_atendidos'), // JSON array
+  criteriosPendentes: text('criterios_pendentes'), // JSON array
+  scoreCompliance: integer('score_compliance'),
+
+  // Status e versoes
+  status: text('status', {
+    enum: ['rascunho', 'em_geracao', 'revisando', 'finalizado']
+  }).default('rascunho'),
+  versao: integer('versao').default(1),
+  promptOriginal: text('prompt_original'),
+
+  // Fontes utilizadas na geracao
+  fontes: text('fontes'), // JSON array de referencias
+
+  // Timestamps
+  criadoEm: text('criado_em').default('CURRENT_TIMESTAMP'),
+  atualizadoEm: text('atualizado_em').default('CURRENT_TIMESTAMP'),
+}, (table) => {
+  return {
+    editalIdIdx: index('idx_projetos_edital_id').on(table.editalId),
+    statusIdx: index('idx_projetos_status').on(table.status),
+    criadoEmIdx: index('idx_projetos_criado_em').on(table.criadoEm),
+  };
+});
+
+// ============================================================
+// RELACIONAMENTOS PROJETOS
+// ============================================================
+export const projetosRelations = relations(projetos, ({ one }) => ({
+  edital: one(editais, {
+    fields: [projetos.editalId],
+    references: [editais.id],
+  }),
+}));
 
 // ============================================================
 // TABELA AREAS TEMATICAS

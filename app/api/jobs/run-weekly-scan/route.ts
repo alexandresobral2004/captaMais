@@ -1,29 +1,63 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { buscarEditaisPortais, filtrarComClassificador } from '@/lib/scraper/fetcher';
 import { analisarEditalComIA } from '@/lib/ai/analyzer';
 import { baixarELerPDFEdital, OpcoesDownload } from '@/lib/scraper/pdf-downloader';
+import { extrairRelativePath } from '@/lib/scraper/utils/path-utils';
 import { saveEdital, getAllEditais, Edital } from '@/lib/db/editais-store';
+import { verificarAdmin } from '@/lib/api/auth';
 
-export async function GET(request: Request) {
-  // Validação de segurança básica
+/**
+ * Verifica autenticação: aceita token de script OU cookie de admin
+ */
+async function verificarAutenticacao(request: NextRequest): Promise<{ ok: boolean; response?: NextResponse }> {
+  // 1. Verificar token no query string (para scripts)
   const url = new URL(request.url);
-  const token = url.searchParams.get('token');
+  const tokenQuery = url.searchParams.get('token');
+  
+  if (tokenQuery) {
+    if (tokenQuery !== process.env.SCAN_TOKEN) {
+      return { ok: false, response: NextResponse.json({ error: 'Token inválido' }, { status: 401 }) };
+    }
+    return { ok: true };
+  }
 
-  // Se tiver um token, validar (você pode configurar isso no .env)
-  if (token && token !== process.env.SCAN_TOKEN) {
-    return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
+  // 2. Verificar token no body (para POST de scripts)
+  try {
+    const body = await request.clone().json().catch(() => ({}));
+    const tokenBody = body.token;
+    
+    if (tokenBody) {
+      if (tokenBody !== process.env.SCAN_TOKEN) {
+        return { ok: false, response: NextResponse.json({ error: 'Token inválido' }, { status: 401 }) };
+      }
+      return { ok: true };
+    }
+  } catch {
+    // Ignorar erro ao parsear body
+  }
+
+  // 3. Verificar cookie de admin (para acesso via UI)
+  const auth = verificarAdmin(request);
+  if (!auth.ok) {
+    return { ok: false, response: auth.response };
+  }
+
+  return { ok: true };
+}
+
+export async function GET(request: NextRequest) {
+  const auth = await verificarAutenticacao(request);
+  if (!auth.ok) {
+    return auth.response!;
   }
 
   return executarVarreduraSemanal();
 }
 
-export async function POST(request: Request) {
-  // Validação de segurança básica
-  const body = await request.json().catch(() => ({}));
-  const token = body.token;
-
-  if (token && token !== process.env.SCAN_TOKEN) {
-    return NextResponse.json({ error: 'Token inválido' }, { status: 401 });
+export async function POST(request: NextRequest) {
+  const auth = await verificarAutenticacao(request);
+  if (!auth.ok) {
+    return auth.response!;
   }
 
   return executarVarreduraSemanal();
@@ -107,6 +141,7 @@ async function executarVarreduraSemanal() {
         if (resultadoExtracao.fonte !== 'sem_pdf' && resultadoExtracao.texto) {
           editaisComPDF++;
           edital.conteudoCompleto = resultadoExtracao.texto;
+          edital.pdfSalvoEm = extrairRelativePath(resultadoExtracao.caminhoArquivo);
           editaisProcesar.push(edital);
         } else {
           // Salvar sem PDF

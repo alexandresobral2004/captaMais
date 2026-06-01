@@ -26,6 +26,7 @@ export interface CreateEditalDTO {
   valorMin?: number;
   valorMax?: number;
   dataPublicacao?: string;
+  dataAbertura?: string;
   dataLimite: string;
   dataResultado?: string;
   status?: string;
@@ -60,9 +61,29 @@ export interface CreateEditalDTO {
   scoreValidacaoKeywords?: number;
   densidadeKeywords?: number;
   oportunidadesDetectadas?: string[];
+  codigo?: string;
 }
 
 export class EditalRepository extends BaseRepository {
+
+  async generateNextCodigo(): Promise<string> {
+    const result = await this.database
+      .select({ codigo: editais.codigo })
+      .from(editais)
+      .where(sql`${editais.codigo} IS NOT NULL`)
+      .orderBy(desc(editais.codigo))
+      .limit(1);
+
+    let nextNum = 1;
+    if (result.length > 0 && result[0].codigo) {
+      const lastCodigo = result[0].codigo;
+      const match = lastCodigo.match(/^EDT-(\d+)$/);
+      if (match) {
+        nextNum = parseInt(match[1], 10) + 1;
+      }
+    }
+    return `EDT-${String(nextNum).padStart(3, '0')}`;
+  }
   async findAll(query: ListEditalQuery): Promise<PaginatedResult<any>> {
     const conditions = [];
 
@@ -147,6 +168,8 @@ export class EditalRepository extends BaseRepository {
   }
 
   async create(data: CreateEditalDTO) {
+    const codigo = data.codigo || await this.generateNextCodigo();
+
     const editalData = {
       id: data.id,
       titulo: data.titulo,
@@ -186,6 +209,7 @@ export class EditalRepository extends BaseRepository {
       hashPontuacao: data.hashPontuacao || null,
       cacheClassificacaoUsado: !!data.cacheClassificacaoUsado,
       confiancaPorCampo: data.confiancaPorCampo ? JSON.stringify(data.confiancaPorCampo) : null,
+      codigo: codigo,
     };
 
     const result = await this.database.insert(editais).values(editalData).returning();
@@ -284,8 +308,82 @@ export class EditalRepository extends BaseRepository {
     return result[0] || null;
   }
 
+  async findByIdNotDeleted(id: string) {
+    const result = await this.database
+      .select()
+      .from(editais)
+      .where(and(
+        eq(editais.id, id),
+        sql`${editais.deletedAt} IS NULL`
+      ))
+      .limit(1);
+
+    return result[0] || null;
+  }
+
+  async findByLinkNotDeleted(link: string) {
+    const result = await this.database
+      .select()
+      .from(editais)
+      .where(and(
+        eq(editais.link, link),
+        sql`${editais.deletedAt} IS NULL`
+      ))
+      .limit(1);
+
+    return result[0] || null;
+  }
+
+  async softDelete(id: string) {
+    const now = new Date().toISOString();
+    await this.database
+      .update(editais)
+      .set({ deletedAt: now })
+      .where(eq(editais.id, id));
+  }
+
+  async findAllNotDeleted(query: ListEditalQuery): Promise<PaginatedResult<any>> {
+    const conditions = [sql`${editais.deletedAt} IS NULL`];
+
+    if (query.status) {
+      conditions.push(eq(editais.status, query.status as any));
+    }
+    if (query.orgao) {
+      conditions.push(like(editais.orgao, `%${query.orgao}%`));
+    }
+    if (query.tecnologia) {
+      conditions.push(like(editais.tecnologiaFoco, `%${query.tecnologia}%`));
+    }
+    if (query.scoreMin !== undefined) {
+      conditions.push(gte(editais.scoreRelevancia, query.scoreMin));
+    }
+    if (query.scoreMax !== undefined) {
+      conditions.push(lte(editais.scoreRelevancia, query.scoreMax));
+    }
+    if (query.dataInicio) {
+      conditions.push(gte(editais.dataLimite, query.dataInicio));
+    }
+    if (query.dataFim) {
+      conditions.push(lte(editais.dataLimite, query.dataFim));
+    }
+
+    const where = conditions.length ? and(...conditions) : undefined;
+    const orderBy = this.buildSortOrder(
+      editais,
+      query.sortBy || 'criadoEm',
+      query.sortOrder || 'desc'
+    );
+
+    return this.findPaginated(editais, {
+      page: query.page,
+      limit: query.limit,
+      where,
+      orderBy: [orderBy],
+    });
+  }
+
   async upsert(data: CreateEditalDTO) {
-    const existente = await this.findById(data.id) || await this.findByLink(data.link);
+    const existente = await this.findByIdNotDeleted(data.id) || await this.findByLinkNotDeleted(data.link);
 
     if (existente) {
       return this.update(existente.id, data);

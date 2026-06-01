@@ -3,6 +3,7 @@ import * as cheerio from 'cheerio';
 import { getPortais, removerPortal, PortalConfig } from './config';
 import { Edital, saveEdital, parseDateString } from '../db/editais-store';
 import { buscarEditaisProsas } from './prosas-scraper';
+import { buscarEditaisCapta } from './capta-scraper';
 import { buscarEditaisFinep, buscarEditaisCNPq, buscarEditaisCapes, buscarEditaisMinisterioCiencia } from './portais-finep-cnpq-capes';
 import { validarComOpenAI, validarBlacklist, validarWhitelistTI } from './filtros-ti';
 
@@ -78,6 +79,44 @@ export async function buscarEditaisPortais(): Promise<Edital[]> {
       erro: err.message
     });
     console.warn(`      ❌ ERRO | ${err.message} | ${tempoProasDecorrido}s\n`);
+  }
+
+  // 2. Capta (capta.org.br)
+  console.log('\n╔═══════════════════════════════════════════════════════════════════╗');
+  console.log('║    🚀 INICIANDO BUSCA NO PORTAL CAPTA (capta.org.br) 🚀       ║');
+  console.log('╚═══════════════════════════════════════════════════════════════════╝\n');
+
+  let tempoCapta = Date.now();
+  try {
+    console.log('  📥 [2/2] Consultando Portal Capta...');
+    const editaisCapta = await buscarEditaisCapta();
+    const tempoCaptaDecorrido = ((Date.now() - tempoCapta) / 1000).toFixed(2);
+
+    for (const ed of editaisCapta) {
+      await saveEdital(ed);
+      novosEditais.push(ed);
+    }
+
+    statusPortais.push({
+      nome: 'Capta',
+      numero: 2,
+      sucesso: true,
+      editaisRetornados: editaisCapta.length,
+      tempo: parseFloat(tempoCaptaDecorrido)
+    });
+
+    console.log(`      ✅ SUCESSO | ${editaisCapta.length} editais retornados | ${tempoCaptaDecorrido}s\n`);
+  } catch (err: any) {
+    const tempoCaptaDecorrido = ((Date.now() - tempoCapta) / 1000).toFixed(2);
+    statusPortais.push({
+      nome: 'Capta',
+      numero: 2,
+      sucesso: false,
+      editaisRetornados: 0,
+      tempo: parseFloat(tempoCaptaDecorrido),
+      erro: err.message
+    });
+    console.warn(`      ❌ ERRO | ${err.message} | ${tempoCaptaDecorrido}s\n`);
   }
 
   // ✨ RESUMO FINAL

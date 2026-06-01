@@ -8,46 +8,19 @@ export default function LandingPage() {
   const router = useRouter()
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: 'var(--color-white)' }}>
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Header */}
-      <header style={{
-        padding: '1rem 5rem',
-        borderBottom: '1px solid var(--border-color)',
-        backgroundColor: 'rgba(255, 255, 255, 0.8)',
-        backdropFilter: 'blur(10px)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 100
-      }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <div style={{
-              width: '2rem',
-              height: '2rem',
-              backgroundColor: 'var(--color-primary)',
-              borderRadius: 'var(--radius-md)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--color-white)',
-              fontWeight: 700,
-              fontSize: 'var(--font-size-sm)'
-            }}>
+      <header className="sticky top-0 z-50 px-6 py-4 border-b bg-background/80 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center text-primary-foreground font-bold text-sm">
               C+
             </div>
-            <span style={{
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 700,
-              color: 'var(--color-gray-900)'
-            }}>
+            <span className="text-lg font-bold text-foreground">
               Capta+
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div className="flex items-center gap-4">
             <Button
               variant="ghost"
               onClick={() => router.push("/login")}
@@ -62,319 +35,162 @@ export default function LandingPage() {
       </header>
 
       {/* Hero Section */}
-      <section style={{
-        padding: '8rem 5rem',
-        display: 'flex',
-        gap: '4rem',
-        alignItems: 'center',
-        maxWidth: '1280px',
-        margin: '0 auto'
-      }}>
-        <div style={{ flex: 1 }}>
-          <div style={{
-            display: 'inline-block',
-            padding: '0.25rem 0.75rem',
-            backgroundColor: 'var(--color-blue-50)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-md)',
-            marginBottom: '1.5rem',
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: 500,
-            color: 'var(--color-primary)'
-          }}>
-            Novidade: IA para Análise de Editais
-          </div>
-          
-          <h1 style={{
-            fontSize: '3.75rem',
-            fontWeight: 700,
-            lineHeight: 1.25,
-            color: 'var(--color-gray-900)',
-            marginBottom: '1.5rem'
-          }}>
-            Transforme a busca por recursos em{' '}
-            <span style={{ color: 'var(--color-primary)' }}>resultados reais</span>
-          </h1>
-          
-          <p style={{
-            fontSize: 'var(--font-size-lg)',
-            color: 'var(--color-gray-600)',
-            marginBottom: '2rem',
-            lineHeight: 1.625
-          }}>
-            O Capta+ centraliza, analisa e recomenda os editais ideais para sua instituição pública,
-            aumentando suas chances de aprovação.
-          </p>
-          
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
-            <Button size="lg" onClick={() => router.push("/login")}>
-              Criar conta gratuita
-              <ArrowRight style={{ width: '1rem', height: '1rem', marginLeft: '0.5rem' }} />
-            </Button>
-            <Button variant="outline" size="lg">
-              Ver demonstração
-            </Button>
-          </div>
-          
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              {['A', 'B', 'C', 'D'].map((letter) => (
-                <div key={letter} style={{
-                  width: '2rem',
-                  height: '2rem',
-                  borderRadius: '9999px',
-                  border: '2px solid var(--color-white)',
-                  backgroundColor: 'var(--color-gray-200)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 700,
-                  color: 'var(--color-gray-600)'
-                }}>
-                  {letter}
-                </div>
-              ))}
+      <main className="flex-1">
+        <section className="px-6 py-20 md:py-32 max-w-7xl mx-auto flex flex-col lg:flex-row gap-12 items-center">
+          <div className="flex-1 text-center lg:text-left">
+            <div className="inline-block px-3 py-1 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md mb-6 text-sm font-medium text-primary">
+              Novidade: IA para Análise de Editais
             </div>
-            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-gray-600)' }}>
-              +2.000 instituições cadastradas
+            
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-tight text-foreground mb-6">
+              Transforme a busca por recursos em{' '}
+              <span className="text-primary">resultados reais</span>
+            </h1>
+            
+            <p className="text-lg md:text-xl text-muted-foreground mb-8 leading-relaxed max-w-2xl mx-auto lg:mx-0">
+              O Capta+ centraliza, analisa e recomenda os editais ideais para sua instituição pública,
+              aumentando suas chances de aprovação.
             </p>
-          </div>
-        </div>
-        
-        <div style={{ flex: 1, position: 'relative' }}>
-          <div style={{
-            padding: '1rem',
-            backgroundColor: 'var(--color-white)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 'var(--radius-lg)',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
-          }}>
-            <div style={{
-              backgroundColor: 'var(--color-gray-50)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--radius-md)',
-              padding: '1rem',
-              minHeight: '300px'
-            }}>
-              {/* Dashboard Preview */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <div style={{ height: '4rem', backgroundColor: 'var(--color-gray-200)', borderRadius: 'var(--radius-sm)' }}></div>
-                <div style={{ height: '4rem', backgroundColor: 'var(--color-gray-200)', borderRadius: 'var(--radius-sm)' }}></div>
-              </div>
-              <div style={{ height: '8rem', backgroundColor: 'var(--color-gray-200)', borderRadius: 'var(--radius-sm)' }}></div>
+            
+            <div className="flex flex-col sm:flex-row gap-4 mb-8 justify-center lg:justify-start">
+              <Button size="lg" onClick={() => router.push("/login")} className="text-base">
+                Criar conta gratuita
+                <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+              <Button variant="outline" size="lg" className="text-base">
+                Ver demonstração
+              </Button>
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section style={{
-        padding: '5rem 5rem',
-        backgroundColor: 'var(--color-gray-50)'
-      }}>
-        <div style={{ maxWidth: '1280px', margin: '0 auto', textAlign: 'center', marginBottom: '4rem' }}>
-          <h2 style={{
-            fontSize: '1.875rem',
-            fontWeight: 700,
-            color: 'var(--color-gray-900)',
-            marginBottom: '1rem'
-          }}>
-            Tudo o que você precisa para captar mais
-          </h2>
-          <p style={{
-            fontSize: 'var(--font-size-lg)',
-            color: 'var(--color-gray-600)',
-            maxWidth: '672px',
-            margin: '0 auto'
-          }}>
-            Nossa plataforma combina tecnologia avançada com uma interface intuitiva para simplificar a gestão de editais.
-          </p>
-        </div>
-        
-        <div style={{
-          maxWidth: '1280px',
-          margin: '0 auto',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: '1.5rem'
-        }}>
-          {[
-            {
-              title: 'Busca Inteligente',
-              description: 'Algoritmos que varrem diários oficiais e portais de convênios para encontrar oportunidades compatíveis com seu perfil.'
-            },
-            {
-              title: 'Conformidade Garantida',
-              description: 'Checklists automáticos e validação de requisitos para garantir que sua instituição atenda a todas as exigências.'
-            },
-            {
-              title: 'Alertas em Tempo Real',
-              description: 'Receba notificações instantâneas sobre novos editais, prazos e retificações importantes.'
-            }
-          ].map((feature, index) => (
-            <div key={index} style={{
-              padding: '2rem',
-              backgroundColor: 'var(--color-white)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--radius-lg)',
-              boxShadow: 'var(--shadow-md)'
-            }}>
-              <div style={{
-                width: '3rem',
-                height: '3rem',
-                backgroundColor: 'var(--color-blue-50)',
-                borderRadius: 'var(--radius-md)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '1rem'
-              }}>
-                <Check style={{ width: '1.5rem', height: '1.5rem', color: 'var(--color-primary)' }} />
+            
+            <div className="flex items-center justify-center lg:justify-start gap-4">
+              <div className="flex -space-x-3">
+                {['A', 'B', 'C', 'D'].map((letter) => (
+                  <div key={letter} className="w-10 h-10 rounded-full border-2 border-background bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
+                    {letter}
+                  </div>
+                ))}
               </div>
-              <h3 style={{
-                fontSize: 'var(--font-size-xl)',
-                fontWeight: 700,
-                color: 'var(--color-gray-900)',
-                marginBottom: '0.5rem'
-              }}>
-                {feature.title}
-              </h3>
-              <p style={{
-                fontSize: 'var(--font-size-base)',
-                color: 'var(--color-gray-600)',
-                lineHeight: 1.625
-              }}>
-                {feature.description}
+              <p className="text-sm text-muted-foreground">
+                +2.000 instituições cadastradas
               </p>
             </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section style={{
-        padding: '5rem 5rem',
-        borderTop: '1px solid var(--border-color)',
-        borderBottom: '1px solid var(--border-color)'
-      }}>
-        <div style={{
-          maxWidth: '1280px',
-          margin: '0 auto',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: '2rem',
-          textAlign: 'center'
-        }}>
-          {[
-            { value: '+15.000', label: 'Editais Monitorados' },
-            { value: 'R$ 2.5B', label: 'Recursos Mapeados' },
-            { value: '2.300', label: 'Instituições Ativas' },
-            { value: '85%', label: 'Taxa de Sucesso' }
-          ].map((stat, index) => (
-            <div key={index}>
-              <div style={{
-                fontSize: '2.25rem',
-                fontWeight: 700,
-                color: 'var(--color-gray-900)',
-                marginBottom: '0.5rem'
-              }}>
-                {stat.value}
-              </div>
-              <div style={{
-                fontSize: 'var(--font-size-base)',
-                color: 'var(--color-gray-600)'
-              }}>
-                {stat.label}
+          </div>
+          
+          <div className="flex-1 w-full max-w-xl lg:max-w-none relative">
+            <div className="p-4 bg-card border rounded-2xl shadow-2xl">
+              <div className="bg-muted border rounded-xl p-4 min-h-[300px] flex flex-col gap-2">
+                {/* Dashboard Preview skeleton */}
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div className="h-16 bg-background/50 rounded-lg"></div>
+                  <div className="h-16 bg-background/50 rounded-lg"></div>
+                </div>
+                <div className="h-32 bg-background/50 rounded-lg"></div>
               </div>
             </div>
-          ))}
-        </div>
-      </section>
+          </div>
+        </section>
 
-      {/* CTA Section */}
-      <section style={{
-        padding: '6rem 5rem',
-        backgroundColor: 'var(--color-gray-900)',
-        color: 'var(--color-white)',
-        textAlign: 'center'
-      }}>
-        <div style={{ maxWidth: '1280px', margin: '0 auto' }}>
-          <Button size="lg" onClick={() => router.push("/login")} style={{ marginBottom: '2rem' }}>
-            Quero fazer parte dessa transformação
-          </Button>
-          <h2 style={{
-            fontSize: '2.25rem',
-            fontWeight: 700,
-            marginBottom: '1rem'
-          }}>
-            Transformando recursos em realidade
-          </h2>
-          <p style={{
-            fontSize: 'var(--font-size-lg)',
-            color: 'var(--color-gray-300)',
-            maxWidth: '672px',
-            margin: '0 auto'
-          }}>
-            Veja como o Capta+ ajuda a viabilizar projetos que impactam diretamente a vida dos cidadãos.
-          </p>
-        </div>
-      </section>
+        {/* Features Section */}
+        <section className="px-6 py-20 bg-muted/30">
+          <div className="max-w-7xl mx-auto text-center mb-16">
+            <h2 className="text-3xl font-bold text-foreground mb-4">
+              Tudo o que você precisa para captar mais
+            </h2>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              Nossa plataforma combina tecnologia avançada com uma interface intuitiva para simplificar a gestão de editais.
+            </p>
+          </div>
+          
+          <div className="max-w-7xl mx-auto grid md:grid-cols-3 gap-8">
+            {[
+              {
+                title: 'Busca Inteligente',
+                description: 'Algoritmos que varrem diários oficiais e portais de convênios para encontrar oportunidades compatíveis com seu perfil.'
+              },
+              {
+                title: 'Conformidade Garantida',
+                description: 'Checklists automáticos e validação de requisitos para garantir que sua instituição atenda a todas as exigências.'
+              },
+              {
+                title: 'Alertas em Tempo Real',
+                description: 'Receba notificações instantâneas sobre novos editais, prazos e retificações importantes.'
+              }
+            ].map((feature, index) => (
+              <div key={index} className="p-8 bg-card border rounded-xl shadow-sm hover:shadow-md transition-shadow">
+                <div className="w-12 h-12 bg-blue-50 dark:bg-blue-900/30 rounded-lg flex items-center justify-center mb-6">
+                  <Check className="w-6 h-6 text-primary" />
+                </div>
+                <h3 className="text-xl font-bold text-foreground mb-3">
+                  {feature.title}
+                </h3>
+                <p className="text-muted-foreground leading-relaxed">
+                  {feature.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Stats Section */}
+        <section className="px-6 py-20 border-y bg-background">
+          <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-12 text-center">
+            {[
+              { value: '+15.000', label: 'Editais Monitorados' },
+              { value: 'R$ 2.5B', label: 'Recursos Mapeados' },
+              { value: '2.300', label: 'Instituições Ativas' },
+              { value: '85%', label: 'Taxa de Sucesso' }
+            ].map((stat, index) => (
+              <div key={index} className="space-y-2">
+                <div className="text-4xl md:text-5xl font-bold text-foreground">
+                  {stat.value}
+                </div>
+                <div className="text-muted-foreground font-medium">
+                  {stat.label}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* CTA Section */}
+        <section className="px-6 py-24 bg-slate-900 text-white text-center">
+          <div className="max-w-3xl mx-auto">
+            <h2 className="text-3xl md:text-4xl font-bold mb-6">
+              Transformando recursos em realidade
+            </h2>
+            <p className="text-xl text-slate-300 mb-10">
+              Veja como o Capta+ ajuda a viabilizar projetos que impactam diretamente a vida dos cidadãos.
+            </p>
+            <Button size="lg" onClick={() => router.push("/login")} className="text-base bg-white text-slate-900 hover:bg-slate-100">
+              Quero fazer parte dessa transformação
+            </Button>
+          </div>
+        </section>
+      </main>
 
       {/* Footer */}
-      <footer style={{
-        padding: '3rem 5rem',
-        borderTop: '1px solid var(--border-color)'
-      }}>
-        <div style={{
-          maxWidth: '1280px',
-          margin: '0 auto',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <div style={{
-              width: '2rem',
-              height: '2rem',
-              backgroundColor: 'var(--color-primary)',
-              borderRadius: 'var(--radius-md)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--color-white)',
-              fontWeight: 700,
-              fontSize: 'var(--font-size-sm)'
-            }}>
+      <footer className="px-6 py-12 border-t bg-background">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center text-primary-foreground font-bold text-sm">
               C+
             </div>
-            <span style={{
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 700,
-              color: 'var(--color-gray-900)'
-            }}>
+            <span className="text-lg font-bold text-foreground">
               Capta+
             </span>
           </div>
-          <nav style={{ display: 'flex', gap: '2rem' }}>
+          <nav className="flex flex-wrap justify-center gap-6">
             {['Sobre', 'Funcionalidades', 'Preços', 'Suporte'].map((link) => (
               <a
                 key={link}
                 href="#"
-                style={{
-                  fontSize: 'var(--font-size-sm)',
-                  color: 'var(--color-gray-600)',
-                  textDecoration: 'none'
-                }}
+                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
                 {link}
               </a>
             ))}
           </nav>
-          <p style={{
-            fontSize: 'var(--font-size-sm)',
-            color: 'var(--color-gray-600)'
-          }}>
+          <p className="text-sm text-muted-foreground text-center md:text-right">
             © 2024 Capta Plus Tecnologia.
           </p>
         </div>

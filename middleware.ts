@@ -14,6 +14,28 @@ const ROTAS_ESTATICAS = [
   '/fonts/',
 ];
 
+// Rotas que aceitam autenticação por token (para scripts/admin)
+const ROTAS_AUTENTICACAO_TOKEN = [
+  '/api/jobs/run-weekly-scan',
+];
+
+/**
+ * Verifica se a requisição tem um token válido para rotas de script
+ */
+function verificarTokenScript(request: NextRequest): boolean {
+  const url = new URL(request.url);
+  
+  // Verificar token no query string
+  const tokenQuery = url.searchParams.get('token');
+  if (tokenQuery && tokenQuery === process.env.SCAN_TOKEN) {
+    return true;
+  }
+
+  // Verificar token no body (para POST)
+  // Nota: não podemos ler o body no middleware, então validaremos no endpoint
+  return false;
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -25,6 +47,29 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Verificar se é uma rota que aceita token
+  const aceitaToken = ROTAS_AUTENTICACAO_TOKEN.some(rota => pathname.startsWith(rota));
+  
+  if (aceitaToken) {
+    // Verificar autenticação por token
+    if (verificarTokenScript(request)) {
+      return NextResponse.next();
+    }
+    
+    // Se não tem token válido, verificar cookie
+    const usuarioLogado = request.cookies.get('usuario_logado');
+    if (usuarioLogado) {
+      return NextResponse.next();
+    }
+    
+    // Se não tem nem token nem cookie, negar acesso
+    return NextResponse.json(
+      { error: 'Não autenticado. Forneça um token válido ou faça login.' },
+      { status: 401 }
+    );
+  }
+
+  // Para todas as outras rotas, verificar cookie
   const usuarioLogado = request.cookies.get('usuario_logado');
 
   if (!usuarioLogado) {

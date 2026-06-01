@@ -6,14 +6,14 @@ import { FileText, Clock, AlertCircle, DollarSign, ArrowRight } from "lucide-rea
 import { getAllEditais, parseDateString } from "@/lib/db/editais-store"
 import Link from "next/link"
 
+// Força renderização dinâmica pois usa SQLite (módulo nativo Node.js)
+export const dynamic = 'force-dynamic';
+
+
 export default async function DashboardPage() {
-  // Busca editais reais no servidor
   const editaisReais = await getAllEditais();
-  
-  // Calcula estatísticas dinâmicas
   const totalEditais = editaisReais.length;
-  
-  // Próximos de vencer (menos de 10 dias)
+
   const agora = new Date();
   const proximosVencer = editaisReais.filter(edital => {
     const dataFechamento = parseDateString(edital.dataLimite);
@@ -24,67 +24,40 @@ export default async function DashboardPage() {
   }).length;
 
   const stats = [
-    {
-      title: "Editais Mapeados",
-      value: String(totalEditais),
-      change: `${totalEditais > 0 ? '+' + totalEditais : '0'} ativos`,
-      icon: FileText,
-    },
-    {
-      title: "Projetos em Análise",
-      value: "5",
-      change: "Aguardando",
-      icon: Clock,
-    },
-    {
-      title: "Prazos Curtos (≤ 10 dias)",
-      value: String(proximosVencer),
-      change: "Necessita atenção",
-      icon: AlertCircle,
-    },
-    {
-      title: "Total Captado",
-      value: "R$ 2.4M",
-      change: "+15% ano",
-      icon: DollarSign,
-    },
+    { title: "Editais Mapeados", value: String(totalEditais), change: `${totalEditais > 0 ? '+' + totalEditais : '0'} ativos`, icon: FileText },
+    { title: "Projetos em Análise", value: "5", change: "Aguardando", icon: Clock },
+    { title: "Prazos Curtos (≤ 10 dias)", value: String(proximosVencer), change: "Necessita atenção", icon: AlertCircle },
+    { title: "Total Captado", value: "R$ 2.4M", change: "+15% ano", icon: DollarSign },
   ];
 
-  // Pega os 5 editais mais recentes ou os primeiros da lista
   const ultimosEditais = editaisReais.slice(0, 5);
 
   return (
     <MainLayout>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+      <div className="flex flex-col gap-8">
         {/* Header */}
-        <div className="dashboard-header">
-          <h2 className="dashboard-title">Visão Geral</h2>
-          <p className="dashboard-subtitle">
+        <div className="flex flex-col gap-2">
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-50">Visão Geral</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             Acompanhe o desempenho de captação da sua instituição em tempo real
           </p>
         </div>
 
         {/* Stats Cards */}
-        <div className="stats-grid">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {stats.map((stat) => {
             const Icon = stat.icon
             return (
               <Card key={stat.title}>
-                <CardHeader style={{ 
-                  display: 'flex', 
-                  flexDirection: 'row', 
-                  alignItems: 'center', 
-                  justifyContent: 'space-between',
-                  paddingBottom: '0.5rem'
-                }}>
-                  <CardTitle style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500, color: 'var(--color-gray-600)' }}>
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium text-slate-600 dark:text-slate-400">
                     {stat.title}
                   </CardTitle>
-                  <Icon style={{ width: '1rem', height: '1rem', color: 'var(--color-gray-400)' }} />
+                  <Icon className="w-4 h-4 text-slate-400" />
                 </CardHeader>
                 <CardContent>
-                  <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700 }}>{stat.value}</div>
-                  <p className="text-xs text-gray-600" style={{ marginTop: '0.25rem' }}>{stat.change}</p>
+                  <div className="text-2xl font-bold text-slate-900 dark:text-slate-50">{stat.value}</div>
+                  <p className="text-xs text-slate-500 mt-1">{stat.change}</p>
                 </CardContent>
               </Card>
             )
@@ -92,56 +65,44 @@ export default async function DashboardPage() {
         </div>
 
         {/* Editais Table */}
-        <div className="dashboard-section">
-          <div className="dashboard-section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h3 className="dashboard-section-title">Últimos Editais Publicados (Abertos)</h3>
+        <div className="flex flex-col gap-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-50">Últimos Editais Publicados (Abertos)</h3>
             <Link href="/editais">
-              <Button variant="outline" size="sm" style={{ display: 'flex', alignItems: 'center' }}>
+              <Button variant="outline" size="sm" className="flex items-center gap-2">
                 Ver Todos
-                <ArrowRight style={{ width: '1rem', height: '1rem', marginLeft: '0.5rem' }} />
+                <ArrowRight className="w-4 h-4" />
               </Button>
             </Link>
           </div>
 
           <Card>
             <div className="overflow-x-auto">
-              <table className="table">
+              <table className="w-full border-collapse text-sm">
                 <thead>
-                  <tr>
-                    <th>Título</th>
-                    <th>Órgão</th>
-                    <th>Valor Estimado</th>
-                    <th>Data Limite</th>
-                    <th>Status</th>
+                  <tr className="border-b border-slate-200 dark:border-slate-700">
+                    <th className="text-left p-3 font-semibold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800">Título</th>
+                    <th className="text-left p-3 font-semibold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800">Órgão</th>
+                    <th className="text-left p-3 font-semibold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800">Valor Estimado</th>
+                    <th className="text-left p-3 font-semibold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800">Data Limite</th>
+                    <th className="text-left p-3 font-semibold text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ultimosEditais.length === 0 ? (
                     <tr>
-                      <td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-gray-500)' }}>
-                        Nenhum edital ativo no banco de dados. Vá em <Link href="/editais" style={{ color: 'var(--color-primary)', textDecoration: 'underline' }}>Explorar Editais</Link> para realizar a primeira busca.
+                      <td colSpan={5} className="text-center p-8 text-slate-500">
+                        Nenhum edital ativo no banco de dados. Vá em <Link href="/editais" className="text-blue-600 underline">Explorar Editais</Link> para realizar a primeira busca.
                       </td>
                     </tr>
                   ) : (
                     ultimosEditais.map((edital) => (
-                      <tr key={edital.id}>
-                        <td className="text-sm text-gray-900" style={{ fontWeight: 500 }}>
-                          {edital.titulo}
-                        </td>
-                        <td className="text-sm text-gray-600">
-                          {edital.orgao}
-                        </td>
-                        <td className="text-sm text-gray-900">
-                          {edital.valor}
-                        </td>
-                        <td className="text-sm text-gray-600" style={{ color: 'var(--color-warning)', fontWeight: 500 }}>
-                          {edital.dataLimite}
-                        </td>
-                        <td>
-                          <Badge variant="success">
-                            {edital.status}
-                          </Badge>
-                        </td>
+                      <tr key={edital.id} className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td className="p-3 font-medium text-slate-900 dark:text-slate-100">{edital.titulo}</td>
+                        <td className="p-3 text-slate-600 dark:text-slate-400">{edital.orgao}</td>
+                        <td className="p-3 text-slate-900 dark:text-slate-100">{edital.valor}</td>
+                        <td className="p-3 font-medium text-amber-600 dark:text-amber-400">{edital.dataLimite}</td>
+                        <td className="p-3"><Badge variant="success">{edital.status}</Badge></td>
                       </tr>
                     ))
                   )}

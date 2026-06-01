@@ -19,31 +19,36 @@ const menuItems = [
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  mobileOnClose?: () => void;
+}
+
+export function Sidebar({ mobileOnClose }: SidebarProps) {
   const pathname = usePathname()
 
+  const handleNavClick = () => {
+    if (mobileOnClose) {
+      mobileOnClose();
+    }
+  };
+
   return (
-    <div className="sidebar">
+    <div className={cn(
+      "sidebar",
+      // No modo mobile (dentro do drawer), o sidebar não precisa de altura fixa
+      // pois o container do drawer já controla isso
+      mobileOnClose && "h-full min-h-full"
+    )}>
       {/* Header */}
       <div className="sidebar-header">
-        <div className="flex items-center gap-sm">
-          <div style={{
-            width: '2rem',
-            height: '2rem',
-            backgroundColor: 'var(--color-primary)',
-            borderRadius: 'var(--radius-md)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--color-white)',
-            fontWeight: 'bold'
-          }}>
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">
             C+
           </div>
-          <h1 className="text-xl font-bold text-gray-900">Capta</h1>
-          <span className="text-blue-600 font-bold">+</span>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-slate-50">Capta</h1>
+          <span className="text-blue-600 font-bold dark:text-blue-400">+</span>
         </div>
-        <p className="text-sm text-gray-600 mt-md">Gestão de Editais</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">Gestão de Editais</p>
       </div>
 
       {/* Navigation */}
@@ -55,9 +60,13 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={cn("nav-item", isActive && "active")}
+              onClick={handleNavClick}
+              className={cn(
+                "nav-item",
+                isActive && "active"
+              )}
             >
-              <Icon style={{ width: '1rem', height: '1rem' }} />
+              <Icon className="h-4 w-4" />
               <span>{item.label}</span>
             </Link>
           )
@@ -66,9 +75,9 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="sidebar-footer">
-        <div className="bg-gray-50 rounded-lg p-md">
-          <p className="text-sm font-medium text-gray-900">Plano Governamental</p>
-          <p className="text-xs text-gray-600 mt-xs">Vence em: 15 dias</p>
+        <div className="bg-slate-100 dark:bg-slate-800 rounded-lg p-3">
+          <p className="text-sm font-medium text-slate-900 dark:text-slate-100">Plano Governamental</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Vence em: 15 dias</p>
         </div>
       </div>
     </div>

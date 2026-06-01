@@ -1,6 +1,7 @@
 import { getAllEditais, saveEdital, Edital } from '../db/editais-store';
 import { baixarELerPDFEdital, OpcoesDownload } from './pdf-downloader';
 import { analisarEditalComIA } from '../ai/analyzer';
+import { extrairRelativePath } from './utils/path-utils';
 
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
@@ -56,6 +57,7 @@ export async function processarEditalUnico(edital: Edital): Promise<boolean> {
     }
     
     edital.statusAnalise = 'pdf_baixado';
+    edital.pdfSalvoEm = extrairRelativePath(resultadoExtracao.caminhoArquivo);
     await saveEdital(edital);
     
     // Aguardar antes de chamar a API de IA para evitar rate limit

@@ -1,0 +1,21 @@
+export { TecnologiaFoco, TipoFerramenta } from './enums';
+
+export { validarWhitelistTI, WHITELIST_TI } from './whitelist';
+
+export { validarBlacklist, BLACKLIST, EXCECOES_BLACKLIST } from './blacklist';
+
+export {
+  validarComOpenAI,
+  gerarFallbackAceitar,
+  inferirTecnologiaPorContexto,
+  inferirTipoFerramentaPorContexto,
+  normalizarTecnologia,
+  normalizarTipo,
+  calcularScoreFinal
+} from './openai-classifier';
+
+export {
+  cacheValidacao,
+  gerarChaveCache,
+  limparCache
+} from './cache';

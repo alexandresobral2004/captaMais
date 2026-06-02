@@ -277,6 +277,24 @@ export function createTables() {
     );
   `);
 
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS logs_sistema (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nivel TEXT NOT NULL CHECK(nivel IN ('error', 'warning', 'info')),
+      mensagem TEXT NOT NULL,
+      cenario_falha TEXT,
+      acao_tomada TEXT CHECK(acao_tomada IN ('retry', 'mark_error', 'human_review', 'skip', 'fallback', 'ignore')),
+      repeticoes INTEGER DEFAULT 0,
+      contexto TEXT,
+      caminho TEXT,
+      detalhes TEXT,
+      usuario_id TEXT,
+      ip TEXT,
+      user_agent TEXT,
+      criado_em TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   // Criar indices
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_editais_status ON editais(status);`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_editais_data_limite ON editais(data_limite);`);
@@ -289,6 +307,11 @@ export function createTables() {
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_projetos_edital_id ON projetos(edital_id);`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_projetos_status ON projetos(status);`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_projetos_criado_em ON projetos(criado_em);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_logs_nivel ON logs_sistema(nivel);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_logs_criado_em ON logs_sistema(criado_em);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_logs_contexto ON logs_sistema(contexto);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_logs_cenario ON logs_sistema(cenario_falha);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_logs_acao ON logs_sistema(acao_tomada);`);
 
   // Setup FTS
   setupFTS();
@@ -300,6 +323,7 @@ export function createTables() {
 // Migração: adicionar colunas novas que podem não existir em bancos antigos
 function migrateSchema() {
   try {
+    // Migração da tabela editais
     const columns = sqlite.prepare("PRAGMA table_info(editais)").all() as any[];
 
     const hasDataAbertura = columns.some((col: any) => col.name === 'data_abertura');
@@ -327,6 +351,27 @@ function migrateSchema() {
     if (!hasFontes) {
       sqlite.exec(`ALTER TABLE projetos ADD COLUMN fontes TEXT`);
       console.log('✅ Migração: coluna fontes adicionada à tabela projetos');
+    }
+
+    // Migração: adicionar colunas na tabela logs_sistema
+    const logColumns = sqlite.prepare("PRAGMA table_info(logs_sistema)").all() as any[];
+
+    const hasCenarioFalha = logColumns.some((col: any) => col.name === 'cenario_falha');
+    if (!hasCenarioFalha) {
+      sqlite.exec(`ALTER TABLE logs_sistema ADD COLUMN cenario_falha TEXT`);
+      console.log('✅ Migração: coluna cenario_falha adicionada à tabela logs_sistema');
+    }
+
+    const hasAcaoTomada = logColumns.some((col: any) => col.name === 'acao_tomada');
+    if (!hasAcaoTomada) {
+      sqlite.exec(`ALTER TABLE logs_sistema ADD COLUMN acao_tomada TEXT CHECK(acao_tomada IN ('retry', 'mark_error', 'human_review', 'skip', 'fallback', 'ignore'))`);
+      console.log('✅ Migração: coluna acao_tomada adicionada à tabela logs_sistema');
+    }
+
+    const hasRepeticoes = logColumns.some((col: any) => col.name === 'repeticoes');
+    if (!hasRepeticoes) {
+      sqlite.exec(`ALTER TABLE logs_sistema ADD COLUMN repeticoes INTEGER DEFAULT 0`);
+      console.log('✅ Migração: coluna repeticoes adicionada à tabela logs_sistema');
     }
   } catch (error: any) {
     // Coluna já existe ou outro erro irrelevante — silenciar

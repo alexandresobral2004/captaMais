@@ -69,8 +69,21 @@ export function paginatedResponse<T>(
   };
 }
 
-export function handleApiError(error: unknown): NextResponse {
+export function handleApiError(error: unknown, context?: string): NextResponse {
   console.error('[API Error]', error);
+
+  const mensagem = error instanceof Error ? error.message : 'Erro desconhecido';
+  const stack = error instanceof Error ? error.stack : undefined;
+
+  import('@/lib/logger').then(({ logger: systemLogger }) => {
+    systemLogger.log({
+      nivel: 'error',
+      mensagem,
+      contexto: 'api',
+      caminho: context,
+      detalhes: { stack },
+    }).catch(() => {});
+  }).catch(() => {});
 
   if (error instanceof ApiError) {
     return NextResponse.json(

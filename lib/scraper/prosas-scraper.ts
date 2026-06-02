@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { Edital, parseDateString } from '../db/editais-store';
 import { validarComOpenAI, validarBlacklist, validarWhitelistTI } from './filtros-ti';
+import { logger, LogCenarioFalha, LogAcao } from '../logger';
 
 const SESSION_FILE = path.join(process.cwd(), 'data', 'prosas-session.json');
 
@@ -121,7 +122,22 @@ async function realizarLoginProsas(): Promise<string[]> {
        console.log('✅ [PROSAS] Login realizado com sucesso (Redirect detectado). Sessão armazenada.');
        return cookies;
     }
-    throw new Error(`Falha no login do Prosas: ${error.message}`);
+
+    const errorMsg = `Falha no login do Prosas: ${error.message}`;
+    console.error(`❌ ${errorMsg}`);
+
+    await logger.logError(
+      errorMsg,
+      'autenticacao_prosas',
+      'retry',
+      {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        hasEmail: !!email,
+      }
+    );
+
+    throw new Error(errorMsg);
   }
 }
 
@@ -160,7 +176,20 @@ async function tentarBuscaComSessao(cookies: string[] | null): Promise<Edital[]>
     });
     token = tokenRes.data.access_token;
   } catch (e: any) {
-    throw new Error(`[PROSAS] Falha ao obter token de acesso: ${e.message}`);
+    const errorMsg = `[PROSAS] Falha ao obter token de acesso: ${e.message}`;
+    console.error(`❌ ${errorMsg}`);
+
+    await logger.logError(
+      errorMsg,
+      'autenticacao_prosas',
+      'retry',
+      {
+        status: e.response?.status,
+        url: 'https://prosas.com.br/auth/oauth2/token'
+      }
+    );
+
+    throw new Error(errorMsg);
   }
 
    console.log('🌐 [PROSAS] Extraindo dados via API V2...');
@@ -439,18 +468,52 @@ async function tentarBuscaComSessao(cookies: string[] | null): Promise<Edital[]>
          console.log(`     - ${tech}: ${count}`);
        }
 
-       return totalEditais;
-     }
-   } catch (e: any) {
-     console.error(`[PROSAS] ❌ Erro ao processar editais:`, {
-       message: e.message,
-       status: e.response?.status,
-       url: e.config?.url,
-       type: e.constructor.name
-     });
-     // Retornar os editais que conseguimos validar antes do erro
-     console.log(`[PROSAS] Retornando ${editais.length} editais parcialmente processados`);
-   }
+return totalEditais;
+      }
+    } catch (e: any) {
+      const isUnauthorized = e.response?.status === 401;
+      const isTimeout = e.code === 'ECONNABORTED' || e.message?.includes('timeout');
+      const isNetworkError = !e.response && e.message?.includes('network');
 
-   return editais;
-}
+      console.error(`[PROSAS] ❌ Erro ao processar editais:`, {
+        message: e.message,
+        status: e.response?.status,
+        url: e.config?.url,
+        type: e.constructor.name
+      });
+
+      let cenario: LogCenarioFalha = 'unknown';
+      let acao: LogAcao = 'mark_error';
+
+      if (isUnauthorized) {
+        cenario = 'session_expired';
+        acao = 'retry';
+      } else if (isTimeout) {
+        cenario = 'timeout';
+        acao = 'retry';
+      } else if (isNetworkError) {
+        cenario = 'network_error';
+        acao = 'retry';
+      } else if (e.response?.status >= 500) {
+        cenario = 'busca_portal';
+        acao = 'human_review';
+      }
+
+      await logger.logError(
+        `Erro ao processar editais: ${e.message}`,
+        cenario,
+        acao,
+        {
+          status: e.response?.status,
+          url: e.config?.url,
+          type: e.constructor.name,
+          partialResults: editais.length
+        }
+      );
+
+      // Retornar os editais que conseguimos validar antes do erro
+      console.log(`[PROSAS] Retornando ${editais.length} editais parcialmente processados`);
+    }
+
+    return editais;
+  }

@@ -4,6 +4,7 @@ import { Edital, saveEdital } from '../db/editais-store';
 import { promptAnaliseSimplificada } from './prompts';
 import { validarCamposEdital } from './validator';
 import { AnaliseEditalSchema, AnaliseEditalResult } from './schema-analise';
+import { logger, LogCenarioFalha, LogAcao } from '../logger';
 
 type ModoAnalise = 'completo' | 'simplificado';
 
@@ -251,6 +252,18 @@ export async function analisarEditalComIA(
         return editalOriginal;
       } catch (erroSimplificado) {
         console.warn('⚠️ Erro na análise simplificada:', erroSimplificado);
+
+        await logger.logError(
+          `Falha na análise simplificada: ${(erroSimplificado as Error).message}`,
+          'analise_ia',
+          'retry',
+          {
+            modo: 'simplificado',
+            editalId,
+            textoLength: textoParaAnalise.length
+          }
+        );
+
         editalOriginal.statusAnalise = 'erro';
         editalOriginal.erroAnalise = (erroSimplificado as Error).message;
         await saveEdital(editalOriginal);
@@ -259,16 +272,40 @@ export async function analisarEditalComIA(
     }
 
     // Modo completo: schema unificado via LangChain (1 chamada em vez de 3)
-    const resultado = await analisarComSchemaUnificado(textoParaAnalise);
-    mapearParaEdital(editalOriginal, resultado);
+    try {
+      const resultado = await analisarComSchemaUnificado(textoParaAnalise);
+      mapearParaEdital(editalOriginal, resultado);
 
-    editalOriginal.statusAnalise = 'analisado';
-    editalOriginal.statusRevisao = editalOriginal.statusRevisao || 'pendente';
-    editalOriginal.ultimaAnalise = new Date();
+      editalOriginal.statusAnalise = 'analisado';
+      editalOriginal.statusRevisao = editalOriginal.statusRevisao || 'pendente';
+      editalOriginal.ultimaAnalise = new Date();
 
-    validarCamposEdital(editalOriginal);
-    await saveEdital(editalOriginal);
-    return editalOriginal;
+      validarCamposEdital(editalOriginal);
+      await saveEdital(editalOriginal);
+      return editalOriginal;
+    } catch (erroAnalise: any) {
+      const isRateLimit = erroAnalise.message?.includes('rate_limit') || erroAnalise.message?.includes('429');
+      const isTimeout = erroAnalise.message?.includes('timeout') || erroAnalise.message?.includes('ETIMEDOUT');
+      const isOpenAIError = erroAnalise.message?.includes('OpenAI') || erroAnalise.message?.includes('api.openai');
+
+      console.error('❌ Erro ao analisar edital com IA:', erroAnalise);
+
+      await logger.logError(
+        `Falha na análise completa: ${erroAnalise.message}`,
+        isRateLimit ? 'rate_limit' : isTimeout ? 'timeout' : isOpenAIError ? 'api_openai' : 'analise_ia',
+        isRateLimit ? 'retry' : 'human_review',
+        {
+          modo: 'completo',
+          editalId,
+          textoLength: textoParaAnalise.length
+        }
+      );
+
+      editalOriginal.statusAnalise = 'erro';
+      editalOriginal.erroAnalise = (erroAnalise as Error).message;
+      await saveEdital(editalOriginal);
+      return editalOriginal;
+    }
   } catch (erro) {
     console.error('❌ Erro ao analisar edital com IA:', erro);
     editalOriginal.statusAnalise = 'erro';

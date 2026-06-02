@@ -6,6 +6,7 @@ import { extrairUrlPDF, validarURLPDF, resolverURLPDF } from './pdf-extractor';
 import { extrairTextoLlamaParse } from './llamaparse-extractor';
 import { validarConteudoComKeywords } from './keyword-validator';
 import { registrarValidacao } from './keyword-logger';
+import { logger, LogCenarioFalha, LogAcao } from '../logger';
 const pdfParse = require('pdf-parse');
 
 const DOWNLOAD_DIR = path.join(process.cwd(), 'data', 'downloads');
@@ -316,8 +317,19 @@ export async function baixarELerPDFEdital(
         tamanhoBytes: buffer.length,
         validacaoKeywords
       };
-    } catch (error) {
-      console.warn(`   ⚠️ Falha na Estratégia 1: ${(error as Error).message}`);
+    } catch (error: any) {
+      const isTimeout = error.message?.includes('timeout') || error.message?.includes('ETIMEDOUT');
+      const isNetwork = !error.response && error.message?.includes('network');
+
+      console.warn(`   ⚠️ Falha na Estratégia 1 (S3): ${error.message}`);
+
+      await logger.logWarning(
+        `Falha no download S3: ${error.message}`,
+        isTimeout ? 'timeout' : isNetwork ? 'network_error' : 'download_pdf',
+        'fallback',
+        { url: opcoes.pdfUrlS3, estrategia: 's3' }
+      );
+
       console.log(`   → Tentando próxima estratégia...`);
     }
   }
@@ -436,12 +448,19 @@ export async function baixarELerPDFEdital(
                  tamanhoBytes: 0
                };
              }
-           } catch (err) {
-             console.warn(`   ⚠️ Falha ao processar página web: ${(err as Error).message}`);
-           }
-        }
-      } catch (error) {
-        console.warn(`   ⚠️ Erro geral na estratégia 2: ${(error as Error).message}`);
+} catch (err) {
+              console.warn(`   ⚠️ Falha ao processar página web: ${(err as Error).message}`);
+
+              await logger.logWarning(
+                `Falha ao processar página web: ${(err as Error).message}`,
+                'download_pdf',
+                'fallback',
+                { url: linkLimpo, estrategia: 'html_page' }
+              );
+            }
+         }
+      } catch (error: any) {
+        console.warn(`   ⚠️ Erro geral na estratégia 2: ${error.message}`);
       }
     }
 
@@ -462,8 +481,8 @@ export async function baixarELerPDFEdital(
           tamanhoBytes: 0
         };
       }
-    } catch (error) {
-      console.warn(`   ⚠️ Erro ao processar descrição: ${(error as Error).message}`);
+    } catch (error: any) {
+      console.warn(`   ⚠️ Erro ao processar descrição: ${error.message}`);
     }
   }
 

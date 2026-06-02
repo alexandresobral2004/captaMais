@@ -2,21 +2,44 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { 
-  Home, 
-  FileText, 
-  CheckCircle, 
-  Users, 
-  Settings 
+import {
+  Home,
+  FileText,
+  CheckCircle,
+  Users,
+  Settings,
+  ChevronDown,
+  AlertTriangle
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useState } from "react"
 
-const menuItems = [
+interface SubMenuItem {
+  href: string;
+  label: string;
+}
+
+interface MenuItem {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  submenu?: SubMenuItem[];
+}
+
+const menuItems: MenuItem[] = [
   { href: "/dashboard", label: "Início", icon: Home },
   { href: "/editais", label: "Meus Editais", icon: FileText },
   { href: "/projetos", label: "Projetos Aprovados", icon: CheckCircle },
   { href: "/usuarios", label: "Usuários da Instituição", icon: Users },
-  { href: "/configuracoes", label: "Configurações", icon: Settings },
+  {
+    href: "/configuracoes",
+    label: "Configurações",
+    icon: Settings,
+    submenu: [
+      { href: "/configuracoes", label: "Geral" },
+      { href: "/configuracoes/logs", label: "Logs de Erro" },
+    ]
+  },
 ]
 
 interface SidebarProps {
@@ -32,11 +55,35 @@ export function Sidebar({ mobileOnClose }: SidebarProps) {
     }
   };
 
+  const isSubMenuActive = (submenu: SubMenuItem[]) => {
+    return submenu.some(item => pathname === item.href);
+  };
+
+  const [expandedMenus, setExpandedMenus] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    menuItems.forEach(item => {
+      if (item.submenu && isSubMenuActive(item.submenu)) {
+        initial.add(item.href);
+      }
+    });
+    return initial;
+  });
+
+  const toggleSubMenu = (href: string) => {
+    setExpandedMenus(prev => {
+      const next = new Set(prev);
+      if (next.has(href)) {
+        next.delete(href);
+      } else {
+        next.add(href);
+      }
+      return next;
+    });
+  };
+
   return (
     <div className={cn(
       "sidebar",
-      // No modo mobile (dentro do drawer), o sidebar não precisa de altura fixa
-      // pois o container do drawer já controla isso
       mobileOnClose && "h-full min-h-full"
     )}>
       {/* Header */}
@@ -54,8 +101,57 @@ export function Sidebar({ mobileOnClose }: SidebarProps) {
       {/* Navigation */}
       <nav className="sidebar-nav">
         {menuItems.map((item) => {
-          const Icon = item.icon
-          const isActive = pathname === item.href
+          const Icon = item.icon;
+          const isActive = pathname === item.href;
+          const hasSubMenu = item.submenu && item.submenu.length > 0;
+          const isExpanded = expandedMenus.has(item.href);
+
+          if (hasSubMenu) {
+            return (
+              <div key={item.href} className="nav-group">
+                <button
+                  onClick={() => toggleSubMenu(item.href)}
+                  className={cn(
+                    "nav-item nav-item-expandable",
+                    (isActive || isSubMenuActive(item.submenu!)) && "active"
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span>{item.label}</span>
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 ml-auto transition-transform",
+                      isExpanded && "rotate-180"
+                    )}
+                  />
+                </button>
+                {isExpanded && (
+                  <div className="nav-submenu">
+                    {item.submenu!.map((subItem) => {
+                      const isSubActive = pathname === subItem.href;
+                      return (
+                        <Link
+                          key={subItem.href}
+                          href={subItem.href}
+                          onClick={handleNavClick}
+                          className={cn(
+                            "nav-submenu-item",
+                            isSubActive && "active"
+                          )}
+                        >
+                          {subItem.label === "Logs de Erro" && (
+                            <AlertTriangle className="h-3 w-3" />
+                          )}
+                          <span>{subItem.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           return (
             <Link
               key={item.href}
@@ -69,7 +165,7 @@ export function Sidebar({ mobileOnClose }: SidebarProps) {
               <Icon className="h-4 w-4" />
               <span>{item.label}</span>
             </Link>
-          )
+          );
         })}
       </nav>
 
@@ -81,5 +177,5 @@ export function Sidebar({ mobileOnClose }: SidebarProps) {
         </div>
       </div>
     </div>
-  )
+  );
 }

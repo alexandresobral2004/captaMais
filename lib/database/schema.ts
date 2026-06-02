@@ -362,3 +362,54 @@ export const tiposProponente = sqliteTable('tipos_proponente', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   nome: text('nome').notNull().unique(),
 });
+
+// ============================================================
+// TABELA LOGS DO SISTEMA
+// ============================================================
+export const logsSistema = sqliteTable('logs_sistema', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  nivel: text('nivel', { enum: ['error', 'warning', 'info'] }).notNull(),
+  mensagem: text('mensagem').notNull(),
+
+  // Cenario de falha - etapa do pipeline
+  cenarioFalha: text('cenario_falha'),  // ex: 'autenticacao_prosas', 'download_pdf', 'analise_ia'
+
+  // Acao tomada como resposta ao erro
+  acaoTomada: text('acao_tomada', {
+    enum: ['retry', 'mark_error', 'human_review', 'skip', 'fallback', 'ignore']
+  }),  // retry=repetir, mark_error=marcar como erro, human_review=pedir revisao, skip=pular, fallback=usar alternativa, ignore=ignorar
+
+  // Contagem de tentativas
+  repeticoes: integer('repeticoes').default(0),
+
+  // Informacoes de origem
+  contexto: text('contexto'),      // modulo de origem (scraper, ai, api, etc)
+  caminho: text('caminho'),        // arquivo/URL de origem
+  detalhes: text('detalhes'),      // JSON com informacoes adicionais
+
+  // Info do usuario/cliente
+  usuarioId: text('usuario_id'),
+  ip: text('ip'),
+  userAgent: text('user_agent'),
+
+  // Timestamp
+  criadoEm: text('criado_em').default('CURRENT_TIMESTAMP'),
+}, (table) => {
+  return {
+    nivelIdx: index('idx_logs_nivel').on(table.nivel),
+    criadoEmIdx: index('idx_logs_criado_em').on(table.criadoEm),
+    contextoIdx: index('idx_logs_contexto').on(table.contexto),
+    cenarioIdx: index('idx_logs_cenario').on(table.cenarioFalha),
+    acaoIdx: index('idx_logs_acao').on(table.acaoTomada),
+  };
+});
+
+// ============================================================
+// RELACIONAMENTOS LOGS
+// ============================================================
+export const logsSistemaRelations = relations(logsSistema, ({ one }) => ({
+  usuario: one(usuarios, {
+    fields: [logsSistema.usuarioId],
+    references: [usuarios.id],
+  }),
+}));

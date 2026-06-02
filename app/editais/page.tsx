@@ -584,10 +584,16 @@ export default function EditaisPage() {
                                 Detalhes
                               </Button>
                               <Button 
-                                variant="outline"
+                                variant="default"
                                 onClick={(e) => handleAnalisarEdital(edital.id, e)}
                                 disabled={analyzing === edital.id}
-                                style={{ flex: 1, padding: '0 0.5rem', backgroundColor: '#f1f5f9' }}
+                                style={{ 
+                                  flex: 1, 
+                                  padding: '0 0.5rem', 
+                                  background: 'var(--color-primary)',
+                                  color: 'white',
+                                  border: 'none'
+                                }}
                               >
                                 {analyzing === edital.id ? 'Analisando...' : 'Analisar'}
                               </Button>

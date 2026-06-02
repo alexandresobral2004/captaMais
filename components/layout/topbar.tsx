@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Search, Bell, User, Settings, LogOut } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { ThemeToggleIcon } from "@/components/providers/theme-toggle"
 
 interface TopBarProps {
   onMobileMenuOpen?: () => void;
@@ -49,6 +50,7 @@ export function TopBar({ onMobileMenuOpen }: TopBarProps) {
 
       {/* User Info */}
       <div className="flex items-center gap-4">
+        <ThemeToggleIcon />
         <Button variant="ghost" size="sm" className="relative">
           <Bell className="w-4 h-4" />
           <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full" />

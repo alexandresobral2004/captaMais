@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { UsuarioService } from '@/lib/database/services/usuario.service';
 
+export const dynamic = 'force-dynamic';
+
 const service = new UsuarioService();
 
 export async function GET() {

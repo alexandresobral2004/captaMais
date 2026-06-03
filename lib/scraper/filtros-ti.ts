@@ -6,6 +6,7 @@ export {
   validarBlacklist,
   BLACKLIST,
   EXCECOES_BLACKLIST,
+  analisarBlacklist,
   validarComOpenAI,
   gerarFallbackAceitar,
   inferirTecnologiaPorContexto,
@@ -17,3 +18,4 @@ export {
   gerarChaveCache,
   limparCache
 } from '../filtros-ti/index';
+export type { BlacklistResult, AiClassificationResult } from '../filtros-ti/index';

@@ -23,7 +23,10 @@ export const EditalReviewPanel: React.FC = () => {
       if (data.success) {
         setEditais(data.editais);
       } else {
-        setErro(data.error);
+        const errorMsg = typeof data.error === 'object' && data.error !== null && 'message' in data.error
+          ? data.error.message
+          : (typeof data.error === 'string' ? data.error : null);
+        setErro(errorMsg || 'Erro ao carregar editais');
       }
     } catch (erro) {
       setErro('Erro ao carregar editais');
@@ -57,7 +60,10 @@ export const EditalReviewPanel: React.FC = () => {
         alert('✅ Edital aprovado com sucesso!');
       } else {
         const data = await response.json();
-        alert(`❌ Erro: ${data.error}`);
+        const errorMsg = typeof data.error === 'object' && data.error !== null && 'message' in data.error
+          ? data.error.message
+          : (typeof data.error === 'string' ? data.error : null);
+        alert(`❌ Erro: ${errorMsg || 'Erro desconhecido'}`);
       }
     } catch (erro) {
       alert('Erro ao aprovar edital');
@@ -82,7 +88,10 @@ export const EditalReviewPanel: React.FC = () => {
         alert('❌ Edital rejeitado');
       } else {
         const data = await response.json();
-        alert(`Erro: ${data.error}`);
+        const errorMsg = typeof data.error === 'object' && data.error !== null && 'message' in data.error
+          ? data.error.message
+          : (typeof data.error === 'string' ? data.error : null);
+        alert(`Erro: ${errorMsg || 'Erro desconhecido'}`);
       }
     } catch (erro) {
       alert('Erro ao rejeitar edital');
@@ -108,7 +117,10 @@ export const EditalReviewPanel: React.FC = () => {
         carregarEditais(); // Recarregar
       } else {
         const data = await response.json();
-        alert(`Erro: ${data.error}`);
+        const errorMsg = typeof data.error === 'object' && data.error !== null && 'message' in data.error
+          ? data.error.message
+          : (typeof data.error === 'string' ? data.error : null);
+        alert(`Erro: ${errorMsg || 'Erro desconhecido'}`);
       }
     } catch (erro) {
       alert('Erro ao salvar correções');

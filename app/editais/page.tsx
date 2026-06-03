@@ -41,6 +41,33 @@ interface Edital {
   tecnologiaFoco?: string;
 }
 
+function stripHtmlTags(html: string): string {
+  if (!html) return '';
+  return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function formatarValorBRL(valor: string | number | null | undefined): string {
+  if (valor === null || valor === undefined) return 'Não informado';
+  if (typeof valor === 'number') {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
+  }
+  const str = String(valor).trim();
+  if (!str) return 'Não informado';
+  if (str.includes(',') && (str.includes('R$') || str.includes('.'))) {
+    return str;
+  }
+  const apenasNumeros = str.replace(/[R$\s]/g, '');
+  let parseable = apenasNumeros;
+  if (apenasNumeros.includes(',') && !apenasNumeros.includes('.')) {
+    parseable = apenasNumeros.replace(',', '.');
+  }
+  const num = parseFloat(parseable);
+  if (isNaN(num)) {
+    return str;
+  }
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num);
+}
+
 export default function EditaisPage() {
   const [editais, setEditais] = useState<Edital[]>([]);
   const [loading, setLoading] = useState(true);
@@ -70,7 +97,7 @@ export default function EditaisPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/editais');
+      const res = await fetch('/api/editais', { cache: 'no-store' });
       if (!res.ok) throw new Error('Falha ao recuperar dados dos editais.');
       const data = await res.json();
       setEditais(data);
@@ -130,7 +157,10 @@ export default function EditaisPage() {
         await fetchEditais();
       } else {
         const data = await res.json();
-        setError(data.error || 'Erro ao analisar edital.');
+        const errorMsg = typeof data.error === 'object' && data.error !== null && 'message' in data.error
+          ? data.error.message
+          : (typeof data.error === 'string' ? data.error : null);
+        setError(errorMsg || 'Erro ao analisar edital.');
       }
     } catch (err) {
       setError((err as Error).message);
@@ -158,7 +188,10 @@ export default function EditaisPage() {
         await fetchEditais();
       } else {
         const data = await res.json();
-        setError(data.error || 'Erro ao deletar edital.');
+        const errorMsg = typeof data.error === 'object' && data.error !== null && 'message' in data.error
+          ? data.error.message
+          : (typeof data.error === 'string' ? data.error : null);
+        setError(errorMsg || 'Erro ao deletar edital.');
       }
     } catch (err) {
       setError((err as Error).message);
@@ -522,13 +555,13 @@ export default function EditaisPage() {
                       
                       <CardContent style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'between' }}>
                         <p className="text-sm text-gray-600 line-clamp-3" style={{ marginBottom: '1.5rem', flexGrow: 1 }}>
-                          {edital.analiseIA?.resumo || edital.descricao}
+                          {stripHtmlTags(edital.analiseIA?.resumo || edital.descricao)}
                         </p>
                         
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem', borderTop: '1px dashed var(--color-gray-200)', paddingTop: '1rem' }}>
                           <div className="flex items-center justify-between text-sm" style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span className="text-gray-600">Valor Estimado:</span>
-                            <span className="font-semibold text-gray-900 line-clamp-1 text-right" style={{ maxWidth: '60%' }} title={edital.valor}>{edital.valor}</span>
+                            <span className="font-semibold text-gray-900 line-clamp-1 text-right" style={{ maxWidth: '60%' }} title={formatarValorBRL(edital.valor)}>{formatarValorBRL(edital.valor)}</span>
                           </div>
                           <div className="flex items-center justify-between text-sm" style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span className="text-gray-600">Data de Fechamento:</span>
@@ -712,9 +745,11 @@ export default function EditaisPage() {
                   <ListChecks style={{ width: '1.1rem', height: '1.1rem', color: 'var(--color-primary)' }} />
                   Visão Geral do Edital
                 </h4>
-                <p className="text-sm text-gray-600" style={{ lineHeight: 1.6 }}>
-                  {editalSelecionado.analiseIA?.resumo || editalSelecionado.descricao}
-                </p>
+                <div 
+                  className="text-sm text-gray-600" 
+                  style={{ lineHeight: 1.6 }}
+                  dangerouslySetInnerHTML={{ __html: editalSelecionado.analiseIA?.resumo || editalSelecionado.descricao }}
+                />
                 {editalSelecionado.analiseIA?.objetivo && (
                   <div style={{ marginTop: '0.5rem', padding: '0.75rem', backgroundColor: '#f8fafc', borderRadius: 'var(--radius-md)', fontSize: '0.875rem' }}>
                     <strong>Objetivo:</strong> {editalSelecionado.analiseIA.objetivo}

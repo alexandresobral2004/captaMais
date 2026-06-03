@@ -62,9 +62,16 @@ export function setupFTS() {
     END;
   `);
 
+  sqlite.exec(`DROP TRIGGER IF EXISTS editais_fts_update;`);
+
   sqlite.exec(`
-    CREATE TRIGGER IF NOT EXISTS editais_fts_update AFTER UPDATE ON editais BEGIN
+    CREATE TRIGGER IF NOT EXISTS editais_fts_before_update BEFORE UPDATE ON editais BEGIN
       DELETE FROM editais_fts WHERE rowid = old.rowid;
+    END;
+  `);
+
+  sqlite.exec(`
+    CREATE TRIGGER IF NOT EXISTS editais_fts_after_update AFTER UPDATE ON editais BEGIN
       INSERT INTO editais_fts(rowid, titulo, descricao, conteudo_completo, orgao)
       VALUES (new.rowid, new.titulo, new.descricao, new.conteudo_completo, new.orgao);
     END;
@@ -216,6 +223,11 @@ export function createTables() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       edital_id TEXT NOT NULL,
       motivo TEXT NOT NULL,
+      fonte TEXT NOT NULL DEFAULT 'whitelist',
+      score_parcial INTEGER,
+      score_final INTEGER,
+      detalhes TEXT,
+      criado_em TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (edital_id) REFERENCES editais(id) ON DELETE CASCADE
     );
   `);
@@ -295,6 +307,41 @@ export function createTables() {
     );
   `);
 
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS jobs (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'PENDENTE',
+      fase TEXT,
+      total_encontrados INTEGER DEFAULT 0,
+      total_validados INTEGER DEFAULT 0,
+      total_downloads INTEGER DEFAULT 0,
+      total_analisados INTEGER DEFAULT 0,
+      total_erros INTEGER DEFAULT 0,
+      erro_detalhes TEXT,
+      iniciado_em TEXT NOT NULL,
+      finalizado_em TEXT,
+      atualizado_em TEXT NOT NULL
+    );
+  `);
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS portais (
+      id TEXT PRIMARY KEY,
+      nome TEXT NOT NULL,
+      url_busca TEXT NOT NULL,
+      urls_fallback TEXT,
+      tipo TEXT NOT NULL CHECK(tipo IN ('rss', 'html', 'api', 'session')),
+      categoria TEXT NOT NULL,
+      ativo INTEGER DEFAULT 1,
+      scraper_module TEXT,
+      intervalo_minutos INTEGER DEFAULT 60,
+      ultimo_scan TEXT,
+      cred_email TEXT,
+      criado_em TEXT NOT NULL,
+      atualizado_em TEXT NOT NULL
+    );
+  `);
+
   // Criar indices
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_editais_status ON editais(status);`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_editais_data_limite ON editais(data_limite);`);
@@ -312,6 +359,10 @@ export function createTables() {
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_logs_contexto ON logs_sistema(contexto);`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_logs_cenario ON logs_sistema(cenario_falha);`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_logs_acao ON logs_sistema(acao_tomada);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_iniciado_em ON jobs(iniciado_em);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_motivos_edital_fonte ON motivos_pontuacao(edital_id, fonte);`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_motivos_fonte ON motivos_pontuacao(fonte);`);
 
   // Setup FTS
   setupFTS();
@@ -373,6 +424,102 @@ function migrateSchema() {
       sqlite.exec(`ALTER TABLE logs_sistema ADD COLUMN repeticoes INTEGER DEFAULT 0`);
       console.log('✅ Migração: coluna repeticoes adicionada à tabela logs_sistema');
     }
+
+    // Migração: adicionar tabela jobs
+    const jobsTableInfo = sqlite.prepare("PRAGMA table_info(jobs)").all() as any[];
+    if (jobsTableInfo.length === 0) {
+      sqlite.exec(`
+        CREATE TABLE IF NOT EXISTS jobs (
+          id TEXT PRIMARY KEY,
+          status TEXT NOT NULL DEFAULT 'PENDENTE',
+          fase TEXT,
+          total_encontrados INTEGER DEFAULT 0,
+          total_validados INTEGER DEFAULT 0,
+          total_downloads INTEGER DEFAULT 0,
+          total_analisados INTEGER DEFAULT 0,
+          total_erros INTEGER DEFAULT 0,
+          erro_detalhes TEXT,
+          iniciado_em TEXT NOT NULL,
+          finalizado_em TEXT,
+          atualizado_em TEXT NOT NULL
+        );
+      `);
+      sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);`);
+      sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_jobs_iniciado_em ON jobs(iniciado_em);`);
+      console.log('✅ Migração: tabela jobs adicionada');
+    }
+    // Migração: adicionar colunas na tabela motivos_pontuacao
+    const motivosColumns = sqlite.prepare("PRAGMA table_info(motivos_pontuacao)").all() as any[];
+
+    const hasMotivosFonte = motivosColumns.some((col: any) => col.name === 'fonte');
+    if (!hasMotivosFonte) {
+      sqlite.exec(`ALTER TABLE motivos_pontuacao ADD COLUMN fonte TEXT NOT NULL DEFAULT 'whitelist'`);
+      console.log('✅ Migração: coluna fonte adicionada à tabela motivos_pontuacao');
+    }
+
+    const hasMotivosScoreParcial = motivosColumns.some((col: any) => col.name === 'score_parcial');
+    if (!hasMotivosScoreParcial) {
+      sqlite.exec(`ALTER TABLE motivos_pontuacao ADD COLUMN score_parcial INTEGER`);
+      console.log('✅ Migração: coluna score_parcial adicionada à tabela motivos_pontuacao');
+    }
+
+    const hasMotivosScoreFinal = motivosColumns.some((col: any) => col.name === 'score_final');
+    if (!hasMotivosScoreFinal) {
+      sqlite.exec(`ALTER TABLE motivos_pontuacao ADD COLUMN score_final INTEGER`);
+      console.log('✅ Migração: coluna score_final adicionada à tabela motivos_pontuacao');
+    }
+
+    const hasMotivosDetalhes = motivosColumns.some((col: any) => col.name === 'detalhes');
+    if (!hasMotivosDetalhes) {
+      sqlite.exec(`ALTER TABLE motivos_pontuacao ADD COLUMN detalhes TEXT`);
+      console.log('✅ Migração: coluna detalhes adicionada à tabela motivos_pontuacao');
+    }
+
+    const hasMotivosCriadoEm = motivosColumns.some((col: any) => col.name === 'criado_em');
+    if (!hasMotivosCriadoEm) {
+      sqlite.exec(`ALTER TABLE motivos_pontuacao ADD COLUMN criado_em TEXT DEFAULT CURRENT_TIMESTAMP`);
+      console.log('✅ Migração: coluna criado_em adicionada à tabela motivos_pontuacao');
+    }
+
+    // Migração: adicionar coluna deleted_at na tabela editais
+    const hasDeletedAt = columns.some((col: any) => col.name === 'deleted_at');
+    if (!hasDeletedAt) {
+      sqlite.exec(`ALTER TABLE editais ADD COLUMN deleted_at TEXT`);
+      console.log('✅ Migração: coluna deleted_at adicionada à tabela editais');
+    }
+
+    // Migração: adicionar índices de motivos
+    try {
+      sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_motivos_edital_fonte ON motivos_pontuacao(edital_id, fonte)`);
+      sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_motivos_fonte ON motivos_pontuacao(fonte)`);
+      sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_editais_deleted_at ON editais(deleted_at)`);
+    } catch (_) { /* índice já existe */ }
+
+    // Migração: adicionar tabela portais
+    const portaisTableInfo = sqlite.prepare("PRAGMA table_info(portais)").all() as any[];
+    if (portaisTableInfo.length === 0) {
+      sqlite.exec(`
+        CREATE TABLE portais (
+          id TEXT PRIMARY KEY,
+          nome TEXT NOT NULL,
+          url_busca TEXT NOT NULL,
+          urls_fallback TEXT,
+          tipo TEXT NOT NULL CHECK(tipo IN ('rss', 'html', 'api', 'session')),
+          categoria TEXT NOT NULL,
+          ativo INTEGER DEFAULT 1,
+          scraper_module TEXT,
+          intervalo_minutos INTEGER DEFAULT 60,
+          ultimo_scan TEXT,
+          cred_email TEXT,
+          criado_em TEXT NOT NULL,
+          atualizado_em TEXT NOT NULL
+        )
+      `);
+      sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_portais_ativo ON portais(ativo)`);
+      sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_portais_categoria ON portais(categoria)`);
+      console.log('✅ Migração: tabela portais adicionada');
+    }
+
   } catch (error: any) {
     // Coluna já existe ou outro erro irrelevante — silenciar
     if (!error.message?.includes('duplicate column')) {

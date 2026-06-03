@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getAllEditais, saveEdital } from '@/lib/db/editais-store';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const editais = await getAllEditais(); // Retorna apenas os editais abertos por padrão (TRAVA ATIVA)

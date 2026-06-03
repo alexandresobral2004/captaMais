@@ -9,6 +9,27 @@ import Link from "next/link"
 // Força renderização dinâmica pois usa SQLite (módulo nativo Node.js)
 export const dynamic = 'force-dynamic';
 
+function formatarValorBRL(valor: string | number | null | undefined): string {
+  if (valor === null || valor === undefined) return 'Não informado';
+  if (typeof valor === 'number') {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
+  }
+  const str = String(valor).trim();
+  if (!str) return 'Não informado';
+  if (str.includes(',') && (str.includes('R$') || str.includes('.'))) {
+    return str;
+  }
+  const apenasNumeros = str.replace(/[R$\s]/g, '');
+  let parseable = apenasNumeros;
+  if (apenasNumeros.includes(',') && !apenasNumeros.includes('.')) {
+    parseable = apenasNumeros.replace(',', '.');
+  }
+  const num = parseFloat(parseable);
+  if (isNaN(num)) {
+    return str;
+  }
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(num);
+}
 
 export default async function DashboardPage() {
   const editaisReais = await getAllEditais();
@@ -100,7 +121,7 @@ export default async function DashboardPage() {
                       <tr key={edital.id} className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <td className="p-3 font-medium text-slate-900 dark:text-slate-100">{edital.titulo}</td>
                         <td className="p-3 text-slate-600 dark:text-slate-400">{edital.orgao}</td>
-                        <td className="p-3 text-slate-900 dark:text-slate-100">{edital.valor}</td>
+                        <td className="p-3 text-slate-900 dark:text-slate-100">{formatarValorBRL(edital.valor)}</td>
                         <td className="p-3 font-medium text-amber-600 dark:text-amber-400">{edital.dataLimite}</td>
                         <td className="p-3"><Badge variant="success">{edital.status}</Badge></td>
                       </tr>

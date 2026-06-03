@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { analisarEditalComIA } from '@/lib/ai/analyzer';
 import { calcularPontuacaoEdital } from '@/lib/ai/scoring';
+import { analisarBlacklist } from '@/lib/scraper/filtros-ti';
 import { baixarELerPDFEdital, OpcoesDownload } from '@/lib/scraper/pdf-downloader';
 import { saveEdital, Edital } from '@/lib/db/editais-store';
 import { verificarAdmin } from '@/lib/api/auth';
@@ -108,10 +109,27 @@ export async function POST(request: NextRequest) {
           pdfUrlEncontrada: resultadoExtracao.pdfUrlEncontrada
         });
 
+        // Executar a blacklist de forma robusta e obter o score negativo
+        const blacklistResultado = analisarBlacklist(edital.titulo, edital.descricao);
+        const scoreFinalCalculado = Math.max(0, pontuacao.scoreFinal - blacklistResultado.scoreNegativo);
+        const nivelCalculado = scoreFinalCalculado >= 80 ? 'alto' : scoreFinalCalculado >= 60 ? 'medio' : 'baixo';
+
+        const motivosPontuacaoFinais = [...(pontuacao.motivos || [])];
+        if (blacklistResultado.scoreNegativo > 0) {
+          motivosPontuacaoFinais.push(...blacklistResultado.motivos);
+        }
+
+        // Registrar conflito se houver (whitelist válida e recomendação da blacklist for revisar ou bloquear)
+        if (pontuacao.whitelist.válido && (blacklistResultado.recomendacao === 'revisar' || blacklistResultado.recomendacao === 'bloquear')) {
+          motivosPontuacaoFinais.push(
+            `[CONFLITO] Whitelist casou termos de TI, mas Blacklist penalizou com peso -${blacklistResultado.scoreNegativo} (${blacklistResultado.recomendacao}). Encaminhado para revisão humana.`
+          );
+        }
+
         const dataDownload = new Date();
         const dataPrefixo = dataDownload.toISOString().slice(0, 10);
         const orgaoSlug = slugify(edital.orgao || 'orgao');
-        const nomeArquivo = `${dataPrefixo}-${orgaoSlug}-${pontuacao.scoreFinal}.pdf`;
+        const nomeArquivo = `${dataPrefixo}-${orgaoSlug}-${scoreFinalCalculado}.pdf`;
         const caminhoDestinoRelativo = path.join('data', 'downloads', nomeArquivo);
         const caminhoDestinoAbsoluto = path.join(process.cwd(), caminhoDestinoRelativo);
 
@@ -144,8 +162,8 @@ export async function POST(request: NextRequest) {
             titulo: edital.titulo,
             orgao: edital.orgao,
             dataDownload: dataDownload.toISOString(),
-            scorePontuacao: pontuacao.scoreFinal,
-            nivelPontuacao: pontuacao.nivel,
+            scorePontuacao: scoreFinalCalculado,
+            nivelPontuacao: nivelCalculado,
             fonteConteudo: resultadoExtracao.fonte,
             pdfUrlOriginal: resultadoExtracao.pdfUrlEncontrada || edital.link,
             tamanhoBytes: resultadoExtracao.tamanhoBytes || null,
@@ -159,9 +177,9 @@ export async function POST(request: NextRequest) {
           ...edital,
           fonteConteudo: resultadoExtracao.fonte,
           pdfSalvoEm: caminhoFinalRelativo,
-          scorePontuacao: pontuacao.scoreFinal,
-          nivelPontuacao: pontuacao.nivel,
-          motivosPontuacao: pontuacao.motivos,
+          scorePontuacao: scoreFinalCalculado,
+          nivelPontuacao: nivelCalculado,
+          motivosPontuacao: motivosPontuacaoFinais,
           modoAnaliseIA: 'completo', // Padrão para análise quando solicitado
           hashPontuacao: pontuacao.hashConteudo,
           cacheClassificacaoUsado: pontuacao.cacheUsado,

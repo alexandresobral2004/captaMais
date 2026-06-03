@@ -50,6 +50,8 @@ export function createTestDb() {
       hash_pontuacao TEXT,
       cache_classificacao_usado INTEGER DEFAULT 0,
       confianca_por_campo TEXT,
+      codigo TEXT UNIQUE,
+      deleted_at TEXT,
       criado_em TEXT DEFAULT CURRENT_TIMESTAMP,
       atualizado_em TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -150,6 +152,11 @@ export function createTestDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       edital_id TEXT NOT NULL,
       motivo TEXT NOT NULL,
+      fonte TEXT NOT NULL DEFAULT 'whitelist',
+      score_parcial INTEGER,
+      score_final INTEGER,
+      detalhes TEXT,
+      criado_em TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (edital_id) REFERENCES editais(id) ON DELETE CASCADE
     );
   `);
@@ -198,6 +205,41 @@ export function createTestDb() {
     );
   `);
 
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS jobs (
+      id TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'PENDENTE',
+      fase TEXT,
+      total_encontrados INTEGER DEFAULT 0,
+      total_validados INTEGER DEFAULT 0,
+      total_downloads INTEGER DEFAULT 0,
+      total_analisados INTEGER DEFAULT 0,
+      total_erros INTEGER DEFAULT 0,
+      erro_detalhes TEXT,
+      iniciado_em TEXT NOT NULL,
+      finalizado_em TEXT,
+      atualizado_em TEXT NOT NULL
+    );
+  `);
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS portais (
+      id TEXT PRIMARY KEY,
+      nome TEXT NOT NULL,
+      url_busca TEXT NOT NULL,
+      urls_fallback TEXT,
+      tipo TEXT NOT NULL CHECK(tipo IN ('rss', 'html', 'api', 'session')),
+      categoria TEXT NOT NULL,
+      ativo INTEGER DEFAULT 1,
+      scraper_module TEXT,
+      intervalo_minutos INTEGER DEFAULT 60,
+      ultimo_scan TEXT,
+      cred_email TEXT,
+      criado_em TEXT NOT NULL,
+      atualizado_em TEXT NOT NULL
+    );
+  `);
+
   // FTS5 for SearchRepository tests
   sqlite.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS editais_fts USING fts5(
@@ -224,9 +266,16 @@ export function createTestDb() {
     END;
   `);
 
+  sqlite.exec(`DROP TRIGGER IF EXISTS editais_fts_update;`);
+
   sqlite.exec(`
-    CREATE TRIGGER IF NOT EXISTS editais_fts_update AFTER UPDATE ON editais BEGIN
+    CREATE TRIGGER IF NOT EXISTS editais_fts_before_update BEFORE UPDATE ON editais BEGIN
       DELETE FROM editais_fts WHERE rowid = old.rowid;
+    END;
+  `);
+
+  sqlite.exec(`
+    CREATE TRIGGER IF NOT EXISTS editais_fts_after_update AFTER UPDATE ON editais BEGIN
       INSERT INTO editais_fts(rowid, titulo, descricao, conteudo_completo, orgao)
       VALUES (new.rowid, new.titulo, new.descricao, new.conteudo_completo, new.orgao);
     END;
@@ -247,16 +296,23 @@ export function clearAllTables(rawDb: Database.Database) {
   rawDb.exec('DELETE FROM motivos_pontuacao');
   rawDb.exec('DELETE FROM projetos');
   rawDb.exec('DELETE FROM editais');
+  rawDb.exec('DELETE FROM jobs');
+  rawDb.exec('DELETE FROM portais');
 }
 
 export function setupTestDbMock() {
   const { db: testDb, rawDb } = createTestDb();
 
-  vi.doMock('../lib/database/db', () => ({
+  const mockDbObj = {
     db: testDb,
     getRawDb: () => rawDb,
     execSQL: (sql: string) => rawDb.exec(sql),
-  }));
+  };
+
+  vi.doMock('../lib/database/db', () => mockDbObj);
+  vi.doMock('../../database/db', () => mockDbObj);
+  vi.doMock('@/lib/database/db', () => mockDbObj);
+  vi.doMock('../database/db', () => mockDbObj);
 
   return { db: testDb, rawDb };
 }

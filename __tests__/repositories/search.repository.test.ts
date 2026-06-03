@@ -188,6 +188,24 @@ describe('SearchRepository', () => {
         expect(item.titulo_highlight || item.descricao_highlight).toBeDefined();
       }
     });
+
+    it('deve desconsiderar editais soft-deleted', async () => {
+      const editais = await seedForSearch();
+      const searchRepo = new SearchRepository();
+      const editalRepo = new EditalRepository();
+      
+      // Soft-delete the first edital in the seeded list (which contains 'inteligencia')
+      await editalRepo.softDelete(editais[0].id);
+
+      const result = await searchRepo.searchFullText({
+        search: 'inteligencia',
+        page: 1,
+        limit: 10,
+      });
+
+      expect(result.data.some((e: any) => e.id === editais[0].id)).toBe(false);
+      expect(result.total).toBe(0);
+    });
   });
 
   describe('getFiltersDisponiveis', () => {
@@ -230,6 +248,19 @@ describe('SearchRepository', () => {
       expect(result.orgaos).toEqual([]);
       expect(result.status).toEqual([]);
       expect(result.tecnologias).toEqual([]);
+    });
+
+    it('deve desconsiderar editais soft-deleted nos filtros', async () => {
+      const editais = await seedForSearch();
+      const searchRepo = new SearchRepository();
+      const editalRepo = new EditalRepository();
+
+      // Soft-delete the FAPERJ edital
+      const faperjEd = editais.find(e => e.orgao === 'FAPERJ')!;
+      await editalRepo.softDelete(faperjEd.id);
+
+      const result = await searchRepo.getFiltersDisponiveis();
+      expect(result.orgaos).not.toContain('FAPERJ');
     });
   });
 
@@ -285,6 +316,19 @@ describe('SearchRepository', () => {
       expect(result.porStatus).toEqual({});
       expect(result.porOrgao).toEqual([]);
       expect(result.porTecnologia).toEqual([]);
+    });
+
+    it('deve desconsiderar editais soft-deleted nas estatisticas', async () => {
+      const editais = await seedForSearch();
+      const searchRepo = new SearchRepository();
+      const editalRepo = new EditalRepository();
+
+      // Soft-delete the FAPERJ edital
+      const faperjEd = editais.find(e => e.orgao === 'FAPERJ')!;
+      await editalRepo.softDelete(faperjEd.id);
+
+      const result = await searchRepo.getStats();
+      expect(result.totalEditais).toBe(3); // 4 - 1 = 3
     });
   });
 });

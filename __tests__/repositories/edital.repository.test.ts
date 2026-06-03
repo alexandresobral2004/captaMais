@@ -351,6 +351,18 @@ describe('EditalRepository', () => {
 
       expect(total).toBe(3);
     });
+
+    it('deve desconsiderar editais soft-deleted', async () => {
+      const repo = new EditalRepository();
+      const ed1 = makeEditalDTO();
+      const ed2 = makeEditalDTO();
+      await repo.create(ed1);
+      await repo.create(ed2);
+      await repo.softDelete(ed1.id);
+
+      const total = await repo.count();
+      expect(total).toBe(1);
+    });
   });
 
   describe('countByStatus', () => {
@@ -366,6 +378,18 @@ describe('EditalRepository', () => {
       expect(counts['Aberto']).toBe(2);
       expect(counts['Fechado']).toBe(1);
       expect(counts['Prorrogado']).toBe(1);
+    });
+
+    it('deve desconsiderar editais soft-deleted', async () => {
+      const repo = new EditalRepository();
+      const ed1 = makeEditalDTO({ status: 'Aberto' });
+      const ed2 = makeEditalDTO({ status: 'Aberto' });
+      await repo.create(ed1);
+      await repo.create(ed2);
+      await repo.softDelete(ed1.id);
+
+      const counts = await repo.countByStatus();
+      expect(counts['Aberto']).toBe(1);
     });
 
     it('deve retornar objeto vazio para tabela vazia', async () => {
@@ -388,6 +412,19 @@ describe('EditalRepository', () => {
 
       expect(result).toHaveLength(2);
       expect(result.every((e: any) => e.pdfPath !== null)).toBe(true);
+    });
+
+    it('deve desconsiderar editais soft-deleted', async () => {
+      const repo = new EditalRepository();
+      const ed1 = makeEditalDTO({ pdfPath: 'downloads/edital-1.pdf' });
+      const ed2 = makeEditalDTO({ pdfPath: 'downloads/edital-2.pdf' });
+      await repo.create(ed1);
+      await repo.create(ed2);
+      await repo.softDelete(ed1.id);
+
+      const result = await repo.findWithPdf();
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(ed2.id);
     });
 
     it('deve retornar array vazio quando nenhum tem pdfPath', async () => {

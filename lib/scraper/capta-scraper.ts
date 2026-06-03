@@ -1,8 +1,9 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import crypto from 'crypto';
-import { Edital } from '../db/editais-store';
+import { Edital, isEditalExcluido } from '../db/editais-store';
 import { validarComOpenAI, validarBlacklist, validarWhitelistTI } from './filtros-ti';
+import { pipelineLogger } from './pipeline-logger';
 
 const CAPTA_URL = 'https://capta.org.br/fontes-de-financiamento/oportunidades/';
 
@@ -118,6 +119,7 @@ export async function buscarEditaisCapta(): Promise<Edital[]> {
 
     if (response.status !== 200) {
       console.warn(`⚠️ [CAPTA] Resposta não OK: ${response.status}`);
+      pipelineLogger.logErro('capta', `Resposta não OK: ${response.status}`);
       return [];
     }
 
@@ -127,6 +129,7 @@ export async function buscarEditaisCapta(): Promise<Edital[]> {
     const editaisParseados = parsearHtml($);
 
     console.log(`   📊 ${editaisParseados.length} editais encontrados no HTML`);
+    pipelineLogger.logBusca(`CAPTA: ${editaisParseados.length} editais encontrados no HTML`);
 
     if (editaisParseados.length === 0) {
       console.warn('⚠️ [CAPTA] Nenhum edital encontrado na página');
@@ -140,27 +143,59 @@ export async function buscarEditaisCapta(): Promise<Edital[]> {
 
       const idEdital = gerarHashLink(item.link);
 
+      // Verificar se o edital já está inativo/excluído no banco de dados
+      if (await isEditalExcluido(idEdital, item.link)) {
+        console.log(`   ⏭️ [CAPTA] Edital [${idEdital}] já está excluído no banco de dados. Pulando.`);
+        continue;
+      }
+
       try {
         const validacaoWhitelist = validarWhitelistTI(item.titulo, item.descricao);
 
         if (!validacaoWhitelist.válido) {
           console.log(`   ⏭️ [${idEdital}] Rejeitado por whitelist: ${item.titulo.substring(0, 40)}...`);
+          pipelineLogger.logWhitelist(idEdital, item.titulo, false, validacaoWhitelist.confidence || 'baixa', validacaoWhitelist.termosBranco || []);
+          pipelineLogger.logResultado(idEdital, item.titulo, 'rejeitado', 'Whitelist');
           rejeitados++;
           continue;
         }
+        
+        pipelineLogger.logWhitelist(idEdital, item.titulo, true, validacaoWhitelist.confidence || 'alta', validacaoWhitelist.termosBranco || []);
 
-        const validacaoIA = await validarComOpenAI(
-          item.titulo,
-          item.descricao,
-          undefined,
-          'Capta/ISPN',
-          validacaoWhitelist.termosBranco
-        );
+        let validacaoIA;
+        try {
+          validacaoIA = await validarComOpenAI(
+            item.titulo,
+            item.descricao,
+            undefined,
+            'Capta/ISPN',
+            validacaoWhitelist.termosBranco
+          );
+        } catch (err) {
+          console.warn(`   ⚠️ Erro OpenAI: ${(err as Error).message}`);
+          validacaoIA = {
+            ok: false as const,
+            válido: false as const,
+            erroTipo: 'unknown' as const,
+            mensagem: (err as Error).message,
+            modelo: 'unknown'
+          };
+          pipelineLogger.logErro(idEdital, `Erro OpenAI: ${(err as Error).message}`);
+        }
+        
+        if (validacaoIA.ok) {
+          pipelineLogger.logIA(idEdital, item.titulo, validacaoIA.válido, validacaoIA.tecnologia, validacaoIA.score);
+        }
 
         const passouBlacklist = validarBlacklist(item.titulo, item.descricao);
+        // Note: validarBlacklist returns boolean only in this old version. 
+        // We'll mock a simple log for it if we don't have the full object here.
+        pipelineLogger.logBlacklist(idEdital, item.titulo, passouBlacklist ? 0 : 50, passouBlacklist ? 'aprovar' : 'bloquear');
 
-        if (!validacaoIA.válido || !passouBlacklist) {
+        const rejeitadoPelaIA = validacaoIA.ok && !validacaoIA.válido;
+        if (rejeitadoPelaIA || !passouBlacklist) {
           console.log(`   ⏭️ [${idEdital}] Rejeitado por IA/blacklist: ${item.titulo.substring(0, 40)}...`);
+          pipelineLogger.logResultado(idEdital, item.titulo, 'rejeitado', rejeitadoPelaIA ? 'IA (OpenAI)' : 'Blacklist');
           rejeitados++;
           continue;
         }
@@ -180,13 +215,26 @@ export async function buscarEditaisCapta(): Promise<Edital[]> {
           descricao: item.descricao.substring(0, 500),
           criadoEm: agora.toISOString(),
 
-          tecnologiaFoco: validacaoIA.tecnologia,
-          tipoFerramenta: validacaoIA.tipo,
-          scoreRelevancia: validacaoIA.score,
-          scoreConfiancaIA: validacaoIA.confiança,
-          validadoPorIA: true,
+          tecnologiaFoco: validacaoIA.ok ? validacaoIA.tecnologia : undefined,
+          tipoFerramenta: validacaoIA.ok ? validacaoIA.tipo : undefined,
+          scoreRelevancia: validacaoIA.ok ? validacaoIA.score : 0,
+          scoreConfiancaIA: validacaoIA.ok ? validacaoIA.confiança : 0,
+          validadoPorIA: validacaoIA.ok,
           palavrasChaveEncontradas: validacaoWhitelist.termosBranco,
           dataValidacaoIA: agora.toISOString(),
+          statusAnalise: validacaoIA.ok ? undefined : 'duvida',
+          foraDoEscopo: validacaoIA.ok ? false : null,
+          motivosPontuacao: validacaoIA.ok ? undefined : [
+            validacaoIA.erroTipo === 'timeout'
+              ? `Falha temporária na classificação OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'rate_limit'
+              ? `Rate limit da OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'auth'
+              ? `Erro de autenticação da OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'parse'
+              ? `Resposta inválida da OpenAI: ${validacaoIA.mensagem}`
+              : `Falha temporária na classificação OpenAI: ${validacaoIA.mensagem}`
+          ],
 
           areasTematicas: item.regiao ? [item.regiao] : undefined,
           abrangencia: item.regiao || 'Nacional',
@@ -194,9 +242,12 @@ export async function buscarEditaisCapta(): Promise<Edital[]> {
 
         editaisValidados.push(edital);
         console.log(`   ✅ [${editaisValidados.length}] ${item.titulo.substring(0, 50)}`);
+        pipelineLogger.logResultado(idEdital, item.titulo, 'salvo', `Score IA: ${edital.scoreRelevancia}`);
 
       } catch (err) {
         console.warn(`   ⚠️ Erro ao processar ${item.link}:`, (err as Error).message);
+        pipelineLogger.logErro(idEdital, (err as Error).message);
+        pipelineLogger.logResultado(idEdital, item.titulo, 'erro', 'Erro de processamento');
         rejeitados++;
       }
 

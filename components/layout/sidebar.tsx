@@ -38,6 +38,9 @@ const menuItems: MenuItem[] = [
     submenu: [
       { href: "/configuracoes", label: "Geral" },
       { href: "/configuracoes/logs", label: "Logs de Erro" },
+      { href: "/configuracoes/filtros", label: "Filtros de Editais" },
+      { href: "/configuracoes/scraper-logs", label: "Logs do Scraper" },
+      { href: "/configuracoes/portais", label: "Portais de Editais" },
     ]
   },
 ]

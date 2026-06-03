@@ -1,6 +1,30 @@
 import axios from 'axios';
 import { TecnologiaFoco, TipoFerramenta } from './enums';
 import { cacheValidacao, gerarChaveCache, CACHE_TTL } from './cache';
+import { loadCategorias } from '../scraper/filtros/loaders';
+
+export type AiClassificationResult =
+  | {
+      ok: true;
+      válido: boolean;
+      tecnologia: TecnologiaFoco;
+      categoria: TecnologiaFoco;
+      tipo: TipoFerramenta;
+      tipoFerramenta: TipoFerramenta;
+      score: number;
+      confiança: number;
+      confianca: number;
+      razão: string;
+      usouCache: boolean;
+      modelo: string;
+    }
+  | {
+      ok: false;
+      válido: false;
+      erroTipo: 'timeout' | 'rate_limit' | 'auth' | 'parse' | 'unknown';
+      mensagem: string;
+      modelo: string;
+    };
 
 export async function validarComOpenAI(
   titulo: string,
@@ -9,30 +33,29 @@ export async function validarComOpenAI(
   orgao?: string,
   termosBranco?: string[],
   tipoEdital?: string
-): Promise<{
-  válido: boolean;
-  tecnologia: TecnologiaFoco;
-  tipo: TipoFerramenta;
-  score: number;
-  razão: string;
-  confiança: number;
-  usouCache: boolean;
-}> {
+): Promise<AiClassificationResult> {
+  const modelo = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+
   try {
     const chaveCache = gerarChaveCache(titulo, descricao);
 
     const cacheEntry = cacheValidacao.get(chaveCache);
     if (cacheEntry && Date.now() - cacheEntry.timestamp < CACHE_TTL) {
       console.log(`   Cache hit: ${titulo.substring(0, 40)}...`);
-      return { ...cacheEntry.data, usouCache: true };
+      return { ...cacheEntry.data, ok: true, usouCache: true, modelo };
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
-    const modelo = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
     if (!apiKey) {
-      console.warn(`   OPENAI_API_KEY não configurada. Fallback: ACEITAR automaticamente.`);
-      return gerarFallbackAceitar(titulo);
+      console.warn(`   OPENAI_API_KEY não configurada.`);
+      return {
+        ok: false,
+        válido: false,
+        erroTipo: 'auth',
+        mensagem: 'OPENAI_API_KEY não configurada',
+        modelo
+      };
     }
 
     const termosBrancoStr = termosBranco?.join(', ') || 'nenhum';
@@ -145,23 +168,38 @@ RESPONDA EM JSON VÁLIDO (sem markdown, sem explicação adicional):
     const content = response.data.choices?.[0]?.message?.content || '';
 
     if (!content || content.trim().length === 0) {
-      console.warn(`   Resposta OpenAI vazia. Fallback: ACEITAR automaticamente.`);
-      return gerarFallbackAceitar(titulo);
+      return {
+        ok: false,
+        válido: false,
+        erroTipo: 'parse',
+        mensagem: 'Resposta OpenAI vazia.',
+        modelo
+      };
     }
 
     const jsonMatch = content.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {
-      console.warn(`   Resposta OpenAI sem JSON. Fallback: ACEITAR automaticamente.`);
-      return gerarFallbackAceitar(titulo);
+      return {
+        ok: false,
+        válido: false,
+        erroTipo: 'parse',
+        mensagem: 'Resposta OpenAI sem JSON no conteúdo.',
+        modelo
+      };
     }
 
     let resultado;
     try {
       resultado = JSON.parse(jsonMatch[0]);
     } catch (parseError) {
-      console.warn(`   JSON inválido: ${(parseError as Error).message}. Fallback: ACEITAR automaticamente.`);
-      return gerarFallbackAceitar(titulo);
+      return {
+        ok: false,
+        válido: false,
+        erroTipo: 'parse',
+        mensagem: `JSON inválido retornado: ${(parseError as Error).message}`,
+        modelo
+      };
     }
 
     const objetoResultado: Record<string, any> = resultado && typeof resultado === 'object' ? resultado : {};
@@ -248,10 +286,13 @@ RESPONDA EM JSON VÁLIDO (sem markdown, sem explicação adicional):
     const resultadoFinal = {
       válido: validoNormalizado,
       tecnologia,
+      categoria: tecnologia,
       tipo,
+      tipoFerramenta: tipo,
       score: Math.min(100, Math.max(0, scoreNormalizado)),
       razão: razaoNormalizada,
       confiança: Math.min(100, Math.max(0, confiancaNormalizada)),
+      confianca: Math.min(100, Math.max(0, confiancaNormalizada)),
       usouCache: false
     };
 
@@ -260,16 +301,31 @@ RESPONDA EM JSON VÁLIDO (sem markdown, sem explicação adicional):
       timestamp: Date.now()
     });
 
-    return resultadoFinal;
+    return { ...resultadoFinal, ok: true, modelo };
 
   } catch (error: any) {
     if (error.name === 'AbortError') {
-      console.warn(`   Timeout OpenAI (>10s). Fallback: ACEITAR automaticamente.`);
-    } else {
-      console.warn(`   Erro OpenAI: ${error.message}. Fallback: ACEITAR automaticamente.`);
+      console.warn(`   Timeout OpenAI (>10s).`);
+      return {
+        ok: false,
+        válido: false,
+        erroTipo: 'timeout',
+        mensagem: 'OpenAI API request timed out (>10s)',
+        modelo
+      };
     }
 
-    return gerarFallbackAceitar(titulo);
+    const isRateLimit = axios.isAxiosError(error) && error.response?.status === 429;
+    const isAuth = axios.isAxiosError(error) && error.response?.status === 401;
+
+    console.error(`   Erro na OpenAI: ${error.message}`);
+    return {
+      ok: false,
+      válido: false,
+      erroTipo: isRateLimit ? 'rate_limit' : isAuth ? 'auth' : 'unknown',
+      mensagem: error.message || 'Erro desconhecido na classificação',
+      modelo
+    };
   }
 }
 
@@ -301,31 +357,12 @@ export function inferirTecnologiaPorContexto(
   const texto = `${titulo} ${descricao}`.toLowerCase();
   const termos = new Set((termosBranco || []).map((t) => t.toLowerCase()));
 
-  const regras: { categoria: TecnologiaFoco; palavras: string[] }[] = [
-    { categoria: TecnologiaFoco.IA_MACHINE_LEARNING, palavras: ['inteligência artificial', 'inteligencia artificial', 'machine learning', 'aprendizado de máquina', 'aprendizado de maquina', 'deep learning', 'rede neural', 'modelos generativos'] },
-    { categoria: TecnologiaFoco.BIG_DATA, palavras: ['big data', 'data science', 'análise de dados', 'analise de dados', 'engenharia de dados', 'data analytics'] },
-    { categoria: TecnologiaFoco.CLOUD_COMPUTING, palavras: ['cloud', 'computação em nuvem', 'computacao em nuvem', 'nuvem', 'aws', 'azure', 'gcp', 'kubernetes', 'container'] },
-    { categoria: TecnologiaFoco.CYBERSECURITY, palavras: ['cibersegurança', 'ciberseguranca', 'segurança da informação', 'seguranca da informacao', 'criptografia', 'pentest', 'cybersecurity'] },
-    { categoria: TecnologiaFoco.DEVOPS, palavras: ['devops', 'ci/cd', 'automação de infraestrutura', 'infraestrutura como código', 'infraestrutura como codigo'] },
-    { categoria: TecnologiaFoco.WEB_MOBILE, palavras: ['aplicativo', 'aplicações web', 'aplicacoes web', 'frontend', 'backend', 'mobile', 'web', 'site', 'plataforma digital'] },
-    { categoria: TecnologiaFoco.BLOCKCHAIN, palavras: ['blockchain', 'web3', 'criptoativo', 'crypto', 'contrato inteligente'] },
-    { categoria: TecnologiaFoco.COMPUTACAO_QUANTICA, palavras: ['computação quântica', 'computacao quantica', 'qubits', 'quantum'] },
-    { categoria: TecnologiaFoco.IOT_SISTEMAS_EMBARCADOS, palavras: ['internet das coisas', 'iot', 'dispositivo inteligente', 'sensor conectado', 'sistemas embarcados'] },
-    { categoria: TecnologiaFoco.DATA_SCIENCE, palavras: ['análise estatística', 'analise estatistica', 'modelagem preditiva', 'cientista de dados'] },
-    { categoria: TecnologiaFoco.LINGUAGENS_E_COMPILADORES, palavras: ['linguagem de programação', 'linguagem de programacao', 'compilador', 'interpretador'] },
-    { categoria: TecnologiaFoco.PESQUISA_ACADEMICA, palavras: ['pesquisa acadêmica', 'pesquisa academica', 'universidade', 'instituto federal', 'acadêmico', 'academico'] },
-    { categoria: TecnologiaFoco.DESENVOLVIMENTO_SOLUCOES, palavras: ['desenvolvimento de soluções', 'desenvolvimento de solucoes', 'prototipagem', 'projeto tecnológico', 'projeto tecnologico'] },
-    { categoria: TecnologiaFoco.INOVACAO_TECNOLOGICA, palavras: ['inovação tecnológica', 'inovacao tecnologica', 'transformação digital', 'transformacao digital', 'modernização', 'modernizacao'] },
-    { categoria: TecnologiaFoco.EDUCACAO_DIGITAL, palavras: ['educação digital', 'educacao digital', 'formação em tecnologia', 'formacao em tecnologia', 'capacitação digital', 'capacitacao digital'] },
-    { categoria: TecnologiaFoco.TRANSFORMACAO_DIGITAL, palavras: ['transformação digital', 'transformacao digital', 'modernização digital', 'modernizacao digital', 'gestão tecnológica', 'gestao tecnologica'] },
-    { categoria: TecnologiaFoco.EVENTO_CIENTIFICO, palavras: ['congresso', 'seminário', 'seminario', 'simpósio', 'simposio', 'evento científico', 'evento cientifico', 'workshop'] }
-  ];
-
+  const categorias = loadCategorias();
   const contem = (palavra: string) => texto.includes(palavra) || termos.has(palavra);
 
-  for (const regra of regras) {
+  for (const regra of categorias.regrasInferenciaTecnologia) {
     if (regra.palavras.some(contem)) {
-      return regra.categoria;
+      return regra.categoria as TecnologiaFoco;
     }
   }
 
@@ -337,20 +374,11 @@ export function inferirTipoFerramentaPorContexto(
   descricao: string
 ): TipoFerramenta | null {
   const texto = `${titulo} ${descricao}`.toLowerCase();
+  const categorias = loadCategorias();
 
-  const regras: { tipo: TipoFerramenta; palavras: string[] }[] = [
-    { tipo: TipoFerramenta.FRAMEWORK, palavras: ['framework', 'metodologia ágil', 'metodologia agil', 'boas práticas', 'boas praticas'] },
-    { tipo: TipoFerramenta.LINGUAGEM, palavras: ['linguagem de programação', 'linguagem de programacao', 'python', 'java', 'javascript', 'typescript', 'go', 'rust', 'c++', 'c#'] },
-    { tipo: TipoFerramenta.BANCO_DADOS, palavras: ['banco de dados', 'database', 'dados estruturados', 'dados estruturados'] },
-    { tipo: TipoFerramenta.IDE, palavras: ['ide', 'editor de código', 'editor de codigo'] },
-    { tipo: TipoFerramenta.PLATAFORMA, palavras: ['plataforma', 'portal', 'ambiente digital', 'ambiente online', 'sistema online'] },
-    { tipo: TipoFerramenta.BIBLIOTECA, palavras: ['biblioteca', 'sdk', 'pacote', 'package'] },
-    { tipo: TipoFerramenta.FERRAMENTA_DESENVOLVIMENTO, palavras: ['ferramenta', 'software', 'solução tecnológica', 'solucao tecnologica', 'aplicativo'] }
-  ];
-
-  for (const regra of regras) {
+  for (const regra of categorias.regrasInferenciaTipo) {
     if (regra.palavras.some((palavra) => texto.includes(palavra))) {
-      return regra.tipo;
+      return regra.tipo as TipoFerramenta;
     }
   }
 
@@ -358,49 +386,19 @@ export function inferirTipoFerramentaPorContexto(
 }
 
 export function normalizarTecnologia(tech: string): TecnologiaFoco {
-  const mapa: { [key: string]: TecnologiaFoco } = {
-    'ia & machine learning': TecnologiaFoco.IA_MACHINE_LEARNING,
-    'big data & analytics': TecnologiaFoco.BIG_DATA,
-    'cloud computing': TecnologiaFoco.CLOUD_COMPUTING,
-    'segurança & criptografia': TecnologiaFoco.CYBERSECURITY,
-    'devops & infraestrutura': TecnologiaFoco.DEVOPS,
-    'web & mobile': TecnologiaFoco.WEB_MOBILE,
-    'blockchain & web3': TecnologiaFoco.BLOCKCHAIN,
-    'computação quântica': TecnologiaFoco.COMPUTACAO_QUANTICA,
-    'iot & sistemas embarcados': TecnologiaFoco.IOT_SISTEMAS_EMBARCADOS,
-    'data science': TecnologiaFoco.DATA_SCIENCE,
-    'linguagens & compiladores': TecnologiaFoco.LINGUAGENS_E_COMPILADORES,
-    'pesquisa acadêmica': TecnologiaFoco.PESQUISA_ACADEMICA,
-    'desenvolvimento de soluções': TecnologiaFoco.DESENVOLVIMENTO_SOLUCOES,
-    'inovação tecnológica': TecnologiaFoco.INOVACAO_TECNOLOGICA,
-    'educação digital': TecnologiaFoco.EDUCACAO_DIGITAL,
-    'transformação digital': TecnologiaFoco.TRANSFORMACAO_DIGITAL,
-    'evento científico': TecnologiaFoco.EVENTO_CIENTIFICO,
-    'outro - ti geral': TecnologiaFoco.OUTRO_COMPUTACAO,
-    'outro - computação': TecnologiaFoco.OUTRO_COMPUTACAO
-  };
-
+  const categorias = loadCategorias();
+  const mapa = categorias.normalizacaoTecnologia;
   const chave = tech.toLowerCase();
-  return mapa[chave] || TecnologiaFoco.OUTRO_COMPUTACAO;
+  const normalizado = mapa[chave];
+  return (normalizado as TecnologiaFoco) || TecnologiaFoco.OUTRO_COMPUTACAO;
 }
 
 export function normalizarTipo(tipo: string): TipoFerramenta {
-  const mapa: { [key: string]: TipoFerramenta } = {
-    'framework': TipoFerramenta.FRAMEWORK,
-    'linguagem de programação': TipoFerramenta.LINGUAGEM,
-    'banco de dados': TipoFerramenta.BANCO_DADOS,
-    'ide/editor': TipoFerramenta.IDE,
-    'plataforma': TipoFerramenta.PLATAFORMA,
-    'biblioteca/pacote': TipoFerramenta.BIBLIOTECA,
-    'ferramenta de desenvolvimento': TipoFerramenta.FERRAMENTA_DESENVOLVIMENTO,
-    'solução corporativa': TipoFerramenta.OUTRO,
-    'sistema educacional': TipoFerramenta.OUTRO,
-    'solução acadêmica': TipoFerramenta.OUTRO,
-    'outro': TipoFerramenta.OUTRO
-  };
-
+  const categorias = loadCategorias();
+  const mapa = categorias.normalizacaoTipo;
   const chave = tipo.toLowerCase();
-  return mapa[chave] || TipoFerramenta.OUTRO;
+  const normalizado = mapa[chave];
+  return (normalizado as TipoFerramenta) || TipoFerramenta.OUTRO;
 }
 
 export function calcularScoreFinal(

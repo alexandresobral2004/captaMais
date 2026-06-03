@@ -2,8 +2,9 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import fs from 'fs';
 import path from 'path';
-import { Edital, parseDateString } from '../db/editais-store';
+import { Edital, parseDateString, isEditalExcluido } from '../db/editais-store';
 import { validarComOpenAI, validarBlacklist, validarWhitelistTI } from './filtros-ti';
+import { pipelineLogger } from './pipeline-logger';
 import { logger, LogCenarioFalha, LogAcao } from '../logger';
 
 const SESSION_FILE = path.join(process.cwd(), 'data', 'prosas-session.json');
@@ -164,6 +165,7 @@ export async function buscarEditaisProsas(): Promise<Edital[]> {
 async function tentarBuscaComSessao(cookies: string[] | null): Promise<Edital[]> {
   const agora = new Date();
   const editais: Edital[] = [];
+  let rejeitados = 0;
   
   console.log('🌐 [PROSAS] Solicitando token de acesso (OAuth2 Client Credentials)...');
   
@@ -195,7 +197,8 @@ async function tentarBuscaComSessao(cookies: string[] | null): Promise<Edital[]>
    console.log('🌐 [PROSAS] Extraindo dados via API V2...');
 
     try {
-      console.log('[PROSAS] Iniciando busca com tratamento robusto de erros...');
+      console.log(`[PROSAS] Iniciando busca com tratamento robusto de erros...`);
+      pipelineLogger.logBusca(`PROSAS: Iniciando busca de editais ativos...`);
       const response = await axios.get('https://prosas.com.br/selecao/api/v2/third_party/oportunidades/inscricoes_abertas', {
        headers: {
          'Authorization': `Bearer ${token}`,
@@ -288,6 +291,7 @@ async function tentarBuscaComSessao(cookies: string[] | null): Promise<Edital[]>
              console.log(`  [${idx + 1}/${todasAsPaginas.length}] ⚠️ ID não encontrado na estrutura:`, Object.keys(item).slice(0, 5));
              continue;
            }
+           const idEdital = `prosas-${itemId}`;
 
            // Buscar detalhe individual com include=arquivos,sites
            const urlDetalhe = `https://prosas.com.br/selecao/api/v2/third_party/oportunidades/${itemId}`;
@@ -364,6 +368,13 @@ async function tentarBuscaComSessao(cookies: string[] | null): Promise<Edital[]>
             linkExterno = proc.link.trim();
           }
 
+          // Verificar se o edital já está inativo/excluído no banco de dados
+          const isExcluido = await isEditalExcluido(idEdital, linkExterno || `https://prosas.com.br/editais/${itemId}`);
+          if (isExcluido) {
+            console.log(`  [${idx + 1}/${todasAsPaginas.length}] ⏭️ Edital ${idEdital} já está excluído no banco de dados. Pulando.`);
+            continue;
+          }
+
            // ✨ NOVO: Validação TI com Whitelist + OpenAI
            let validacaoWhitelist;
            try {
@@ -375,74 +386,94 @@ async function tentarBuscaComSessao(cookies: string[] | null): Promise<Edital[]>
            
            // Se não passou na whitelist, pular
            if (!validacaoWhitelist.válido) {
-             console.log(`  [${idx + 1}/${todasAsPaginas.length}] ❌ Rejeitado (sem termo TI): ${proc.nome.substring(0, 40)}`);
-             continue;
-           }
-
-           // ✨ NOVO: Chamar OpenAI para validação completa
-           let validacaoIA;
-           try {
-             console.log(`  [${idx + 1}/${todasAsPaginas.length}] 🤖 Validando com OpenAI: ${proc.nome.substring(0, 40)}...`);
-             validacaoIA = await validarComOpenAI(
-               proc.nome,
-               proc.descricao || '',
-               proc.valor_limite?.toString(),
-               proc.nome_empresa,
-               validacaoWhitelist.termosBranco
-             );
-           } catch (err) {
-             console.log(`  [${idx + 1}/${todasAsPaginas.length}] ⚠️ Erro OpenAI: ${(err as Error).message}`);
-             continue;
-           }
-
-           // ✨ NOVO: Validação final com blacklist
-           let passuBlacklist;
-           try {
-             passuBlacklist = validarBlacklist(proc.nome, proc.descricao || '');
-           } catch (err) {
-             console.log(`  [${idx + 1}/${todasAsPaginas.length}] ⚠️ Erro blacklist: ${(err as Error).message}`);
-             continue;
-           }
+            console.log(`  [${idx + 1}/${todasAsPaginas.length}] ❌ Rejeitado (sem termo TI): ${proc.nome.substring(0, 40)}`);
+            pipelineLogger.logWhitelist(idEdital, proc.nome, false, validacaoWhitelist.confidence || 'baixa', validacaoWhitelist.termosBranco || []);
+            pipelineLogger.logResultado(idEdital, proc.nome, 'rejeitado', 'Whitelist');
+            continue;
+          }
+          
+          pipelineLogger.logWhitelist(idEdital, proc.nome, true, validacaoWhitelist.confidence || 'alta', validacaoWhitelist.termosBranco || []);
            
-            // ℹ️ REMOVIDO: Rejeição por validação IA
-            // Agora aceitamos TODOS os editais para análise posterior
-            // Apenas rejeitamos se falhar na blacklist (se falhar, quer dizer que é aula de empreendedorismo, desporto, etc)
-            if (!passuBlacklist) {
-              const motivo = 'Contém termo blacklist';
-              console.log(`  [${idx + 1}/${todasAsPaginas.length}] ❌ Rejeitado: ${motivo}`);
+           // ✨ NOVO: Chamar OpenAI para validação completa
+            let validacaoIA;
+            try {
+              console.log(`  [${idx + 1}/${todasAsPaginas.length}] 🤖 Validando com OpenAI: ${proc.nome.substring(0, 40)}...`);
+              validacaoIA = await validarComOpenAI(
+                proc.nome,
+                proc.descricao || '',
+                proc.valor_limite?.toString(),
+                proc.nome_empresa,
+                validacaoWhitelist.termosBranco
+              );
+            } catch (err) {
+              console.log(`  [${idx + 1}/${todasAsPaginas.length}] ⚠️ Erro OpenAI: ${(err as Error).message}`);
+              pipelineLogger.logErro(idEdital, `Erro OpenAI: ${(err as Error).message}`);
+              // Fallback para falha interna da API
+              validacaoIA = {
+                ok: false as const,
+                válido: false as const,
+                erroTipo: 'unknown' as const,
+                mensagem: (err as Error).message,
+                modelo: 'unknown'
+              };
+            }
+            
+            if (validacaoIA.ok) {
+              pipelineLogger.logIA(idEdital, proc.nome, validacaoIA.válido, validacaoIA.tecnologia, validacaoIA.score);
+            }
+
+            // ✨ NOVO: Validação final com blacklist
+            let textoCombinado = `${proc.nome} ${proc.descricao || ''}`;
+            const passarBlacklistObj = validarBlacklist(proc.nome, textoCombinado);
+            pipelineLogger.logBlacklist(idEdital, proc.nome, passarBlacklistObj ? 0 : 50, passarBlacklistObj ? 'aprovar' : 'bloquear');
+            
+            // Rejeita apenas se a classificação por IA foi bem-sucedida E indicou inválido, OU se falhou na blacklist
+            const rejeitadoPelaIA = validacaoIA.ok && !validacaoIA.válido;
+            if (rejeitadoPelaIA || !passarBlacklistObj) {
+              console.log(`  [${idx + 1}/${todasAsPaginas.length}] ❌ Rejeitado (válidoIA=${validacaoIA.ok ? validacaoIA.válido : 'incerto'}, passouBlacklist=${passarBlacklistObj}): ${proc.nome.substring(0, 40)}`);
+              pipelineLogger.logResultado(idEdital, proc.nome, 'rejeitado', rejeitadoPelaIA ? 'IA (OpenAI)' : 'Blacklist');
               continue;
             }
 
-          // Montar edital com dados ricos E dados TI
-          const edital: Edital = {
-            id: `prosas-${item.id}`,
-            titulo: proc.nome,
-            orgao: proc.nome_empresa || 'Prosas',
-            valor: proc.valor_limite ? `Até R$ ${proc.valor_limite.toLocaleString('pt-BR')}` : (proc.valor_total_disponivel ? `R$ ${proc.valor_total_disponivel.toLocaleString('pt-BR')}` : 'Sob consulta'),
-            valorMax: proc.valor_limite,
-            dataLimite: proc.data_limite_inscricao_sem_rascunho || proc.encerramento_das_inscricoes || 'Sem data limite informada',
-            status: 'Aberto',
-            link: linkExterno || `https://prosas.com.br/editais/${item.id}`,
-            descricao: proc.descricao || '', // HTML completo da descrição
-            pdfUrl: pdfUrlS3, // S3 PDF com prioridade
-            criadoEm: new Date().toISOString(),
-            arquivosAnexos: arquivosAnexos.length > 0 ? arquivosAnexos : undefined,
+            // Montar edital com dados ricos E dados TI (tratando incerteza se OpenAI falhar)
+            const edital: Edital = {
+              id: idEdital,
+              titulo: proc.nome,
+              orgao: proc.nome_empresa || 'Prosas',
+              valor: proc.valor_limite ? `Até R$ ${proc.valor_limite.toLocaleString('pt-BR')}` : (proc.valor_total_disponivel ? `R$ ${proc.valor_total_disponivel.toLocaleString('pt-BR')}` : 'Sob consulta'),
+              valorMax: proc.valor_limite,
+              dataLimite: proc.data_limite_inscricao_sem_rascunho || proc.encerramento_das_inscricoes || 'Sem data limite informada',
+              status: 'Aberto',
+              link: linkExterno || `https://prosas.com.br/editais/${itemId}`,
+              descricao: proc.descricao || '', // HTML completo da descrição
+              pdfUrl: pdfUrlS3, // S3 PDF com prioridade
+              criadoEm: new Date().toISOString(),
+              arquivosAnexos: arquivosAnexos.length > 0 ? arquivosAnexos : undefined,
+              
+              // ✨ NOVOS CAMPOS TI COM INCOGNITA CONTROLADA SE FALHAR
+              tecnologiaFoco: validacaoIA.ok ? validacaoIA.tecnologia : undefined,
+              tipoFerramenta: validacaoIA.ok ? validacaoIA.tipo : undefined,
+              scoreRelevancia: validacaoIA.ok ? validacaoIA.score : 0,
+              scoreConfiancaIA: validacaoIA.ok ? validacaoIA.confiança : 0,
+              validadoPorIA: validacaoIA.ok,
+              palavrasChaveEncontradas: validacaoWhitelist.termosBranco,
+              dataValidacaoIA: new Date().toISOString(),
+              statusAnalise: validacaoIA.ok ? undefined : 'duvida',
+              foraDoEscopo: validacaoIA.ok ? false : null,
+              motivosPontuacao: validacaoIA.ok ? undefined : [`Falha temporária na classificação OpenAI: ${validacaoIA.mensagem}`]
+            };
+
+            totalEditais.push(edital);
+            pipelineLogger.logResultado(idEdital, proc.nome, 'salvo', `Score IA: ${edital.scoreRelevancia}`);
             
-            // ✨ NOVOS CAMPOS TI
-            tecnologiaFoco: validacaoIA.tecnologia,
-            tipoFerramenta: validacaoIA.tipo,
-            scoreRelevancia: validacaoIA.score,
-            scoreConfiancaIA: validacaoIA.confiança,
-            validadoPorIA: true,
-            palavrasChaveEncontradas: validacaoWhitelist.termosBranco,
-            dataValidacaoIA: new Date().toISOString()
-          };
+            if (validacaoIA.ok) {
+              console.log(`  [${idx + 1}/${todasAsPaginas.length}] ✅ VÁLIDO TI [${validacaoIA.tecnologia}]: ${proc.nome.substring(0, 40)}`);
+            } else {
+              console.log(`  [${idx + 1}/${todasAsPaginas.length}] ❓ INCERTO TI (Falha IA): ${proc.nome.substring(0, 40)}`);
+            }
 
-          totalEditais.push(edital);
-          console.log(`  [${idx + 1}/${todasAsPaginas.length}] ✅ VÁLIDO TI [${validacaoIA.tecnologia}]: ${proc.nome.substring(0, 40)}`);
-
-          // Rate limiting: 500ms entre requests de detalhe
-          await new Promise(res => setTimeout(res, 500));
+            // Rate limiting: 500ms entre requests de detalhe
+            await new Promise(res => setTimeout(res, 500));
 
         } catch (err: any) {
           const itemId = todasAsPaginas[idx]?.id || 'desconhecido';

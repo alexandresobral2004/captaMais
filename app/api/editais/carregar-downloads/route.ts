@@ -3,6 +3,8 @@ import { getAllEditais, saveEdital } from '@/lib/db/editais-store';
 import fs from 'fs';
 import path from 'path';
 
+export const dynamic = 'force-dynamic';
+
 const DOWNLOADS_DIR = path.join(process.cwd(), 'data', 'downloads');
 
 // Extrai informações básicas do nome do arquivo PDF

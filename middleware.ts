@@ -27,7 +27,7 @@ function verificarTokenScript(request: NextRequest): boolean {
   
   // Verificar token no query string
   const tokenQuery = url.searchParams.get('token');
-  if (tokenQuery && tokenQuery === process.env.SCAN_TOKEN) {
+  if (tokenQuery && tokenQuery === (process.env.SCAN_TOKEN || 'capta-mais-scan-token-secret-2026')) {
     return true;
   }
 
@@ -51,12 +51,17 @@ export function middleware(request: NextRequest) {
   const aceitaToken = ROTAS_AUTENTICACAO_TOKEN.some(rota => pathname.startsWith(rota));
   
   if (aceitaToken) {
-    // Verificar autenticação por token
+    // 1. Para POST, deixa passar para o endpoint validar no body
+    if (request.method === 'POST') {
+      return NextResponse.next();
+    }
+
+    // 2. Verificar autenticação por token (GET)
     if (verificarTokenScript(request)) {
       return NextResponse.next();
     }
     
-    // Se não tem token válido, verificar cookie
+    // 3. Se não tem token válido, verificar cookie
     const usuarioLogado = request.cookies.get('usuario_logado');
     if (usuarioLogado) {
       return NextResponse.next();

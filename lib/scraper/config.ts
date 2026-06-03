@@ -1,78 +1,194 @@
-
 import fs from 'fs';
 import path from 'path';
+import { PortalService, PortalDTO, Portal } from '../database/services/portal.service';
 
 export interface PortalConfig {
   id: string;
   nome: string;
   urlBusca: string;
+  urlsFallback: string[];
   tipo: 'rss' | 'html' | 'api' | 'session';
   categoria: string;
+  ativo: boolean;
+  scraperModule?: string;
+  intervaloMinutos: number;
+  ultimoScan?: string;
+  credEmail?: string;
 }
 
-const DEFAULT_PORTAIS: PortalConfig[] = [
-  {
-    id: 'finep',
-    nome: 'FINEP - Chamadas Públicas',
-    urlBusca: 'http://www.finep.gov.br/chamadas-publicas?format=feed&type=rss',
-    tipo: 'rss',
-    categoria: 'Inovação e Tecnologia'
-  },
-  {
-    id: 'cnpq',
-    nome: 'CNPq - Chamadas Abertas',
-    urlBusca: 'https://www.gov.br/cnpq/pt-br/financiamento/chamadas-abertas',
-    tipo: 'html',
-    categoria: 'Pesquisa e Acadêmico'
-  },
-  {
-    id: 'fapesp',
-    nome: 'FAPESP - Oportunidades',
-    urlBusca: 'https://fapesp.br/oportunidades/oportunidades.xml',
-    tipo: 'rss',
-    categoria: 'Pesquisa e Ciência'
-  },
-  {
-    id: 'bndes',
-    nome: 'BNDES - Editais de Apoio',
-    urlBusca: 'https://www.bndes.gov.br/wps/portal/site/home/onde-atuamos/social/apoio-a-projetos-sociais',
-    tipo: 'html',
-    categoria: 'Social e Infraestrutura'
-  }
-];
-
+const service = new PortalService();
 const CONFIG_FILE = path.join(process.cwd(), 'data', 'portais-config.json');
 
-export function getPortais(): PortalConfig[] {
-  const dataDir = path.join(process.cwd(), 'data');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
+let portaisCache: PortalConfig[] | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 60000;
+let migrationDone = false;
 
-  if (!fs.existsSync(CONFIG_FILE)) {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(DEFAULT_PORTAIS, null, 2), 'utf8');
-    return DEFAULT_PORTAIS;
+function lerJsonFallback(): PortalConfig[] {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const data = fs.readFileSync(CONFIG_FILE, 'utf8');
+      const portais = JSON.parse(data);
+      return portais.map((p: any) => ({
+        id: p.id,
+        nome: p.nome,
+        urlBusca: p.urlBusca,
+        urlsFallback: p.urlsFallback || [],
+        tipo: p.tipo || 'html',
+        categoria: p.categoria || 'Geral',
+        ativo: p.ativo !== false,
+        scraperModule: p.scraperModule,
+        intervaloMinutos: p.intervaloMinutos || 60,
+        ultimoScan: p.ultimoScan,
+        credEmail: p.credEmail,
+      }));
+    }
+  } catch (error) {
+    console.warn('Erro ao ler portais-config.json:', error);
+  }
+  return [];
+}
+
+export function getPortais(): PortalConfig[] {
+  const now = Date.now();
+  if (portaisCache && (now - cacheTimestamp) < CACHE_TTL) {
+    return portaisCache;
   }
 
   try {
-    const data = fs.readFileSync(CONFIG_FILE, 'utf8');
-    return JSON.parse(data);
+    const portais = service.listarSync();
+    portaisCache = portais;
+    cacheTimestamp = now;
+    return portais;
   } catch (error) {
-    console.error('Erro ao ler portais-config.json:', error);
-    return DEFAULT_PORTAIS;
+    console.warn('Erro ao buscar portais do banco, usando JSON:', error);
+    const json = lerJsonFallback();
+    portaisCache = json;
+    cacheTimestamp = now;
+    return json;
   }
 }
 
-export function removerPortal(id: string): void {
-  const portais = getPortais();
-  const novosPortais = portais.filter(p => p.id !== id);
-  
-  if (novosPortais.length < portais.length) {
-    const dataDir = path.join(process.cwd(), 'data');
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+export async function getPortaisAsync(): Promise<PortalConfig[]> {
+  if (!migrationDone) {
+    migrationDone = true;
+    try {
+      await migrarJsonParaBanco();
+    } catch (e) {
+      console.warn('Migração inicial ignorada:', e);
     }
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(novosPortais, null, 2), 'utf8');
-    console.log(`❌ Portal [${id}] fora do ar. Removido permanentemente da lista de buscas automáticas.`);
+  }
+
+  try {
+    const portais = await service.listar();
+    portaisCache = portais;
+    cacheTimestamp = Date.now();
+    return portais;
+  } catch (error) {
+    console.warn('Erro ao buscar portais do banco:', error);
+    return lerJsonFallback();
+  }
+}
+
+export async function getPortaisAtivos(): Promise<PortalConfig[]> {
+  try {
+    return await service.listarAtivos();
+  } catch (error) {
+    console.warn('Erro ao buscar portais ativos do banco:', error);
+    const json = lerJsonFallback();
+    return json.filter(p => p.ativo);
+  }
+}
+
+export async function getPortal(id: string): Promise<PortalConfig | null> {
+  try {
+    return await service.buscarPorId(id);
+  } catch (error) {
+    console.warn(`Erro ao buscar portal ${id} do banco:`, error);
+    const json = lerJsonFallback();
+    return json.find(p => p.id === id) || null;
+  }
+}
+
+export async function criarPortal(data: PortalDTO): Promise<PortalConfig> {
+  const portal = await service.criar(data);
+  invalidarCache();
+  return portal;
+}
+
+export async function atualizarPortal(id: string, data: Partial<PortalDTO>): Promise<PortalConfig> {
+  const portal = await service.atualizar(id, data);
+  invalidarCache();
+  return portal;
+}
+
+export async function togglePortal(id: string): Promise<PortalConfig> {
+  const portal = await service.toggleAtivo(id);
+  invalidarCache();
+  return portal;
+}
+
+export async function removerPortal(id: string): Promise<void> {
+  try {
+    await service.deletar(id);
+    invalidarCache();
+    console.log(`Portal [${id}] removido com sucesso.`);
+  } catch (error: any) {
+    if (error.message?.includes('não encontrado')) {
+      console.warn(`Portal [${id}] não encontrado no banco.`);
+    } else {
+      throw error;
+    }
+  }
+}
+
+export async function atualizarUltimoScan(id: string): Promise<void> {
+  await service.atualizarUltimoScan(id);
+}
+
+function invalidarCache(): void {
+  portaisCache = null;
+  cacheTimestamp = 0;
+}
+
+export function invalidateCache(): void {
+  invalidarCache();
+}
+
+export async function migrarJsonParaBanco(): Promise<number> {
+  try {
+    const portaisExistentes = await service.listar();
+    if (portaisExistentes.length > 0) {
+      console.log('Banco já possui portais, migração ignorada.');
+      return 0;
+    }
+
+    const portaisJson = lerJsonFallback();
+    if (portaisJson.length === 0) {
+      console.log('Nenhum portal no JSON para migrar.');
+      return 0;
+    }
+
+    for (const portal of portaisJson) {
+      await service.criar({
+        id: portal.id,
+        nome: portal.nome,
+        urlBusca: portal.urlBusca,
+        urlsFallback: portal.urlsFallback,
+        tipo: portal.tipo,
+        categoria: portal.categoria,
+        ativo: portal.ativo,
+        scraperModule: portal.scraperModule,
+        intervaloMinutos: portal.intervaloMinutos,
+        credEmail: portal.credEmail,
+      });
+    }
+
+    console.log(`${portaisJson.length} portais migrados do JSON para o banco.`);
+    invalidarCache();
+    return portaisJson.length;
+  } catch (error) {
+    console.error('Erro na migração de portais:', error);
+    return 0;
   }
 }

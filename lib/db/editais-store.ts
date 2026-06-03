@@ -78,7 +78,7 @@ export interface Edital {
   validadoPorIA?: boolean;
   palavrasChaveEncontradas?: string[];
   motivoRejeicao?: string;
-  foraDoEscopo?: boolean;
+  foraDoEscopo?: boolean | null;
   dataValidacaoIA?: string;
   scorePontuacao?: number;
   nivelPontuacao?: 'baixo' | 'medio' | 'alto';
@@ -100,7 +100,7 @@ export interface Edital {
     scoreAdequacao?: number;
   };
 
-  statusAnalise?: 'pendente' | 'pdf_baixado' | 'analisado' | 'sem_pdf' | 'descartado' | 'erro';
+  statusAnalise?: 'pendente' | 'pdf_baixado' | 'analisado' | 'sem_pdf' | 'descartado' | 'erro' | 'duvida';
   erroAnalise?: string;
 
   confiancaClassificacao?: number;
@@ -166,6 +166,7 @@ export interface Edital {
 
   criadoEm: string;
   atualizadoEm?: string;
+  deletedAt?: string | null;
 }
 
 // ============================================================
@@ -245,6 +246,7 @@ function dbToEdital(row: any, analise?: any): Edital {
     dadosExtraidos: row.dadosExtraidos ?? undefined,
     criadoEm: row.criadoEm || new Date().toISOString(),
     atualizadoEm: row.atualizadoEm ?? undefined,
+    deletedAt: row.deletedAt ?? undefined,
   };
 
   // Mapear analiseIA do banco normalizado
@@ -336,6 +338,9 @@ export async function getAllEditais(incluirFechados = false): Promise<Edital[]> 
     let query = `SELECT * FROM editais`;
     const conditions: string[] = [];
 
+    // Sempre ignorar os editais deletados logicamente
+    conditions.push('deleted_at IS NULL');
+
     if (!incluirFechados) {
       const agora = new Date().toISOString();
       conditions.push(`(data_limite IS NULL OR data_limite >= '${agora}')`);
@@ -366,12 +371,19 @@ export async function saveEdital(edital: Partial<Edital> & { id: string }): Prom
   try {
     const dbData = editalToDb(edital);
 
-    // Buscar existente para merge (IGNORAR deletados)
-    let existente = await repo.findByIdNotDeleted(edital.id);
+    // Buscar existente no banco (incluindo deletados)
+    let existente = await repo.findById(edital.id);
 
     // Se não encontrou por ID, tentar por link (para scrapers que geram ID por hash do link)
     if (!existente && dbData.link) {
-      existente = await repo.findByLinkNotDeleted(dbData.link);
+      existente = await repo.findByLink(dbData.link);
+    }
+
+    // Se o edital já foi excluído/inativo, ignoramos e não fazemos nada
+    if (existente && existente.deletedAt !== null) {
+      console.log(`ℹ️ Edital ${edital.id} já está excluído/inativo no banco de dados. Ignorando atualização/inserção.`);
+      const analise = await analiseRepo.findByEditalId(existente.id);
+      return dbToEdital(existente, analise);
     }
 
     let resultado: any;
@@ -450,10 +462,31 @@ export async function deleteEdital(id: string): Promise<boolean> {
     const existente = await repo.findById(id);
     if (!existente) return false;
 
-    await repo.delete(id);
+    const { EditalService } = await import('../database/services/edital.service');
+    const service = new EditalService();
+    await service.deletar(id);
     return true;
   } catch (erro) {
     console.error(`❌ Erro ao deletar edital ${id}:`, erro);
+    return false;
+  }
+}
+
+export async function isEditalExcluido(id: string, link?: string): Promise<boolean> {
+  try {
+    const existente = await repo.findById(id);
+    if (existente && existente.deletedAt !== null) {
+      return true;
+    }
+    if (link) {
+      const existentePorLink = await repo.findByLink(link);
+      if (existentePorLink && existentePorLink.deletedAt !== null) {
+        return true;
+      }
+    }
+    return false;
+  } catch (erro) {
+    console.error(`❌ Erro ao verificar se edital ${id} está excluído:`, erro);
     return false;
   }
 }

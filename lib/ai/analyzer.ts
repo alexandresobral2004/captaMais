@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { ChatOpenAI } from '@langchain/openai';
-import { Edital, saveEdital } from '../db/editais-store';
+import { Edital, saveEdital, getAllEditais } from '../db/editais-store';
 import { promptAnaliseSimplificada } from './prompts';
 import { validarCamposEdital } from './validator';
 import { AnaliseEditalSchema, AnaliseEditalResult } from './schema-analise';
@@ -192,8 +192,7 @@ export async function analisarEditalComIA(
       ? textoCompletoInput.texto
       : String(textoCompletoInput || '');
 
-  const banco = require('../db/editais-store');
-  const todos = await banco.getAllEditais(true);
+  const todos = await getAllEditais(true);
   const editalOriginal = todos.find((e: Edital) => e.id === editalId);
 
   if (!editalOriginal) {

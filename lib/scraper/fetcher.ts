@@ -55,8 +55,12 @@ export async function buscarEditaisPortais(): Promise<Edital[]> {
     const tempoProasDecorrido = ((Date.now() - tempoProsa) / 1000).toFixed(2);
     
     for (const ed of editaisProsas) {
-      await saveEdital(ed);
-      novosEditais.push(ed);
+      const salvo = await saveEdital(ed);
+      if (salvo.deletedAt) {
+        console.log(`  ⏭️ [PROSAS] Edital ${ed.id} já está excluído no banco de dados. Ignorando no download.`);
+        continue;
+      }
+      novosEditais.push(salvo);
     }
     
     statusPortais.push({
@@ -93,8 +97,12 @@ export async function buscarEditaisPortais(): Promise<Edital[]> {
     const tempoCaptaDecorrido = ((Date.now() - tempoCapta) / 1000).toFixed(2);
 
     for (const ed of editaisCapta) {
-      await saveEdital(ed);
-      novosEditais.push(ed);
+      const salvo = await saveEdital(ed);
+      if (salvo.deletedAt) {
+        console.log(`  ⏭️ [CAPTA] Edital ${ed.id} já está excluído no banco de dados. Ignorando no download.`);
+        continue;
+      }
+      novosEditais.push(salvo);
     }
 
     statusPortais.push({

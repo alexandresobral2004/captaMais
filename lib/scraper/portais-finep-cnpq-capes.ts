@@ -1,7 +1,31 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { Edital } from '../db/editais-store';
+import { Edital, isEditalExcluido } from '../db/editais-store';
 import { validarComOpenAI, validarBlacklist, validarWhitelistTI } from './filtros-ti';
+import { pipelineLogger } from './pipeline-logger';
+import { getPortal, atualizarUltimoScan } from './config';
+
+const DEFAULT_URLS = {
+  finep: [
+    'https://www.finep.gov.br/chamadas-publicas',
+    'https://finep.gov.br/chamadas-publicas',
+    'https://www.finep.gov.br'
+  ],
+  cnpq: [
+    'https://www.gov.br/cnpq/pt-br/financiamento/chamadas-abertas',
+    'https://cnpq.br/chamadas-publicas',
+    'https://www.cnpq.br/chamadas-publicas'
+  ],
+  capes: [
+    'https://www.gov.br/capes/pt-br/acesso-a-informacao/editais',
+    'https://www.capes.gov.br/editais',
+    'https://capes.gov.br/editais'
+  ],
+  mcti: [
+    'https://antigo.mctic.gov.br/mctic/opencms/ciencia/SEPED/ciencias_humanas/EDITAIS_PUBLICACOES/Editais.html',
+    'https://www.gov.br/mcti/pt-br/acompanhe-o-mcti/noticias'
+  ]
+};
 
 function construirLinkAbsoluto(link: string, base: string): string {
   if (!link) {
@@ -28,23 +52,24 @@ function construirLinkAbsoluto(link: string, base: string): string {
 
 /**
  * FINEP - Fundação de Estudos e Projetos
- * URLs:
- *   - https://www.finep.gov.br/chamadas-publicas (principal)
- *   - https://finep.gov.br/chamadas (alternativa)
+ * URLs: lidas da configuração do banco (fallback para hardcoded)
  */
 export async function buscarEditaisFinep(): Promise<Edital[]> {
   const editaisValidados: Edital[] = [];
-  const agora = new Date();
 
-  // URLs para tentar em sequência
-  const urls = [
-    'https://www.finep.gov.br/chamadas-publicas',
-    'https://finep.gov.br/chamadas-publicas',
-    'https://www.finep.gov.br'
-  ];
+  let urls: string[] = DEFAULT_URLS.finep;
+  try {
+    const portalConfig = await getPortal('finep');
+    if (portalConfig && portalConfig.ativo) {
+      urls = [portalConfig.urlBusca, ...(portalConfig.urlsFallback || [])];
+    }
+  } catch (error) {
+    console.warn('   ⚠️ Erro ao buscar config do FINEP, usando URLs padrão');
+  }
 
   try {
     console.log('\n🌐 [FINEP] Iniciando busca de editais...');
+    pipelineLogger.logBusca(`FINEP: Iniciando busca`);
 
     let response = null;
     let urlUsada = '';
@@ -89,6 +114,14 @@ export async function buscarEditaisFinep(): Promise<Edital[]> {
         continue;
       }
 
+      const idEdital = `finep-${Buffer.from(titulo).toString('base64').substring(0, 10)}`;
+      const linkAbsoluto = link.startsWith('http') ? link : `https://www.finep.gov.br${link}`;
+
+      if (await isEditalExcluido(idEdital, linkAbsoluto)) {
+        console.log(`   ⏭️ [FINEP] Edital [${idEdital}] já está excluído no banco de dados. Pulando.`);
+        continue;
+      }
+
       // Validação com whitelist
       const validacaoWhitelist = validarWhitelistTI(titulo, '');
       
@@ -99,18 +132,32 @@ export async function buscarEditaisFinep(): Promise<Edital[]> {
 
       // Validação com OpenAI
       try {
-        const validacaoIA = await validarComOpenAI(
-          titulo,
-          '',
-          undefined,
-          'FINEP',
-          validacaoWhitelist.termosBranco
-        );
+        let validacaoIA;
+        try {
+          validacaoIA = await validarComOpenAI(
+            titulo,
+            '',
+            undefined,
+            'FINEP',
+            validacaoWhitelist.termosBranco
+          );
+        } catch (err) {
+          console.warn(`   ⚠️ Erro OpenAI (FINEP): ${(err as Error).message}`);
+          validacaoIA = {
+            ok: false as const,
+            válido: false as const,
+            erroTipo: 'unknown' as const,
+            mensagem: (err as Error).message,
+            modelo: 'unknown'
+          };
+        }
 
         const passuBlacklist = validarBlacklist(titulo, '');
 
-        if (!validacaoIA.válido || !passuBlacklist) {
+        const rejeitadoPelaIA = validacaoIA.ok && !validacaoIA.válido;
+        if (rejeitadoPelaIA || !passuBlacklist) {
           rejeitados++;
+          pipelineLogger.logResultado(idEdital, titulo, 'rejeitado', rejeitadoPelaIA ? 'IA (OpenAI)' : 'Blacklist');
           continue;
         }
 
@@ -126,18 +173,33 @@ export async function buscarEditaisFinep(): Promise<Edital[]> {
           criadoEm: new Date().toISOString(),
           
           // Campos TI
-          tecnologiaFoco: validacaoIA.tecnologia,
-          tipoFerramenta: validacaoIA.tipo,
-          scoreRelevancia: validacaoIA.score,
-          scoreConfiancaIA: validacaoIA.confiança,
-          validadoPorIA: true,
+          tecnologiaFoco: validacaoIA.ok ? validacaoIA.tecnologia : undefined,
+          tipoFerramenta: validacaoIA.ok ? validacaoIA.tipo : undefined,
+          scoreRelevancia: validacaoIA.ok ? validacaoIA.score : 0,
+          scoreConfiancaIA: validacaoIA.ok ? validacaoIA.confiança : 0,
+          validadoPorIA: validacaoIA.ok,
           palavrasChaveEncontradas: validacaoWhitelist.termosBranco,
-          dataValidacaoIA: new Date().toISOString()
+          dataValidacaoIA: new Date().toISOString(),
+          statusAnalise: validacaoIA.ok ? undefined : 'duvida',
+          foraDoEscopo: validacaoIA.ok ? false : null,
+          motivosPontuacao: validacaoIA.ok ? undefined : [
+            validacaoIA.erroTipo === 'timeout'
+              ? `Falha temporária na classificação OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'rate_limit'
+              ? `Rate limit da OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'auth'
+              ? `Erro de autenticação da OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'parse'
+              ? `Resposta inválida da OpenAI: ${validacaoIA.mensagem}`
+              : `Falha temporária na classificação OpenAI: ${validacaoIA.mensagem}`
+          ]
         };
 
         editaisValidados.push(edital);
         console.log(`   ✅ [${editaisValidados.length}] ${titulo.substring(0, 50)}`);
+        pipelineLogger.logResultado(idEdital, titulo, 'salvo', 'IA (OpenAI)');
       } catch (err) {
+        console.warn(`   ⚠️ Erro ao processar edital FINEP: ${(err as Error).message}`);
         rejeitados++;
       }
 
@@ -146,6 +208,7 @@ export async function buscarEditaisFinep(): Promise<Edital[]> {
     }
 
     console.log(`\n📊 [FINEP] Resultado: ${editaisValidados.length} válidos, ${rejeitados} rejeitados`);
+    pipelineLogger.logBusca(`FINEP concluído: ${editaisValidados.length} válidos, ${rejeitados} rejeitados`);
     return editaisValidados;
 
    } catch (error) {
@@ -158,23 +221,24 @@ export async function buscarEditaisFinep(): Promise<Edital[]> {
 
 /**
  * CNPq - Conselho Nacional de Desenvolvimento Científico e Tecnológico
- * URLs: 
- *   - https://www.gov.br/cnpq/pt-br/financiamento/chamadas-abertas (principal)
- *   - https://cnpq.br/chamadas-publicas (alternativa)
+ * URLs: lidas da configuração do banco (fallback para hardcoded)
  */
 export async function buscarEditaisCNPq(): Promise<Edital[]> {
   const editaisValidados: Edital[] = [];
-  const agora = new Date();
 
-  // URLs para tentar em sequência
-  const urls = [
-    'https://www.gov.br/cnpq/pt-br/financiamento/chamadas-abertas',
-    'https://cnpq.br/chamadas-publicas',
-    'https://www.cnpq.br/chamadas-publicas'
-  ];
+  let urls: string[] = DEFAULT_URLS.cnpq;
+  try {
+    const portalConfig = await getPortal('cnpq');
+    if (portalConfig && portalConfig.ativo) {
+      urls = [portalConfig.urlBusca, ...(portalConfig.urlsFallback || [])];
+    }
+  } catch (error) {
+    console.warn('   ⚠️ Erro ao buscar config do CNPq, usando URLs padrão');
+  }
 
   try {
     console.log('\n🌐 [CNPq] Iniciando busca de editais...');
+    pipelineLogger.logBusca(`CNPq: Iniciando busca`);
 
     let response = null;
     let urlUsada = '';
@@ -219,6 +283,16 @@ export async function buscarEditaisCNPq(): Promise<Edital[]> {
         continue;
       }
 
+      const idEdital = `cnpq-${Buffer.from(titulo).toString('base64').substring(0, 10)}`;
+      const urlCompleta = link && !link.startsWith('http') 
+        ? `https://www.gov.br${link}`
+        : (link || 'https://www.gov.br/cnpq/pt-br/financiamento/chamadas-abertas');
+
+      if (await isEditalExcluido(idEdital, urlCompleta)) {
+        console.log(`   ⏭️ [CNPq] Edital [${idEdital}] já está excluído no banco de dados. Pulando.`);
+        continue;
+      }
+
       // Validação com whitelist
       const validacaoWhitelist = validarWhitelistTI(titulo, '');
       
@@ -229,18 +303,32 @@ export async function buscarEditaisCNPq(): Promise<Edital[]> {
 
       // Validação com OpenAI
       try {
-        const validacaoIA = await validarComOpenAI(
-          titulo,
-          '',
-          undefined,
-          'CNPq',
-          validacaoWhitelist.termosBranco
-        );
+        let validacaoIA;
+        try {
+          validacaoIA = await validarComOpenAI(
+            titulo,
+            '',
+            undefined,
+            'CNPq',
+            validacaoWhitelist.termosBranco
+          );
+        } catch (err) {
+          console.warn(`   ⚠️ Erro OpenAI (CNPq): ${(err as Error).message}`);
+          validacaoIA = {
+            ok: false as const,
+            válido: false as const,
+            erroTipo: 'unknown' as const,
+            mensagem: (err as Error).message,
+            modelo: 'unknown'
+          };
+        }
 
         const passuBlacklist = validarBlacklist(titulo, '');
 
-        if (!validacaoIA.válido || !passuBlacklist) {
+        const rejeitadoPelaIA = validacaoIA.ok && !validacaoIA.válido;
+        if (rejeitadoPelaIA || !passuBlacklist) {
           rejeitados++;
+          pipelineLogger.logResultado(idEdital, titulo, 'rejeitado', rejeitadoPelaIA ? 'IA (OpenAI)' : 'Blacklist');
           continue;
         }
 
@@ -260,18 +348,33 @@ export async function buscarEditaisCNPq(): Promise<Edital[]> {
           criadoEm: new Date().toISOString(),
           
           // Campos TI
-          tecnologiaFoco: validacaoIA.tecnologia,
-          tipoFerramenta: validacaoIA.tipo,
-          scoreRelevancia: validacaoIA.score,
-          scoreConfiancaIA: validacaoIA.confiança,
-          validadoPorIA: true,
+          tecnologiaFoco: validacaoIA.ok ? validacaoIA.tecnologia : undefined,
+          tipoFerramenta: validacaoIA.ok ? validacaoIA.tipo : undefined,
+          scoreRelevancia: validacaoIA.ok ? validacaoIA.score : 0,
+          scoreConfiancaIA: validacaoIA.ok ? validacaoIA.confiança : 0,
+          validadoPorIA: validacaoIA.ok,
           palavrasChaveEncontradas: validacaoWhitelist.termosBranco,
-          dataValidacaoIA: new Date().toISOString()
+          dataValidacaoIA: new Date().toISOString(),
+          statusAnalise: validacaoIA.ok ? undefined : 'duvida',
+          foraDoEscopo: validacaoIA.ok ? false : null,
+          motivosPontuacao: validacaoIA.ok ? undefined : [
+            validacaoIA.erroTipo === 'timeout'
+              ? `Falha temporária na classificação OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'rate_limit'
+              ? `Rate limit da OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'auth'
+              ? `Erro de autenticação da OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'parse'
+              ? `Resposta inválida da OpenAI: ${validacaoIA.mensagem}`
+              : `Falha temporária na classificação OpenAI: ${validacaoIA.mensagem}`
+          ]
         };
 
         editaisValidados.push(edital);
         console.log(`   ✅ [${editaisValidados.length}] ${titulo.substring(0, 50)}`);
+        pipelineLogger.logResultado(idEdital, titulo, 'salvo', 'IA (OpenAI)');
       } catch (err) {
+        console.warn(`   ⚠️ Erro ao processar edital CNPq: ${(err as Error).message}`);
         rejeitados++;
       }
 
@@ -280,6 +383,7 @@ export async function buscarEditaisCNPq(): Promise<Edital[]> {
     }
 
      console.log(`\n📊 [CNPq] Resultado: ${editaisValidados.length} válidos, ${rejeitados} rejeitados`);
+     pipelineLogger.logBusca(`CNPq concluído: ${editaisValidados.length} válidos, ${rejeitados} rejeitados`);
      return editaisValidados;
 
    } catch (error) {
@@ -292,27 +396,24 @@ export async function buscarEditaisCNPq(): Promise<Edital[]> {
 
 /**
  * CAPES - Coordenação de Aperfeiçoamento de Pessoal de Nível Superior
- * URL: https://www.gov.br/capes/pt-br/acesso-a-informacao/editais
- */
-/**
- * CAPES - Coordenação de Aperfeiçoamento de Pessoal de Nível Superior
- * URLs:
- *   - https://www.gov.br/capes/pt-br/acesso-a-informacao/editais (principal)
- *   - https://www.capes.gov.br/editais (alternativa)
+ * URLs: lidas da configuração do banco (fallback para hardcoded)
  */
 export async function buscarEditaisCapes(): Promise<Edital[]> {
   const editaisValidados: Edital[] = [];
-  const agora = new Date();
 
-  // URLs para tentar em sequência
-  const urls = [
-    'https://www.gov.br/capes/pt-br/acesso-a-informacao/editais',
-    'https://www.capes.gov.br/editais',
-    'https://capes.gov.br/editais'
-  ];
+  let urls: string[] = DEFAULT_URLS.capes;
+  try {
+    const portalConfig = await getPortal('capes');
+    if (portalConfig && portalConfig.ativo) {
+      urls = [portalConfig.urlBusca, ...(portalConfig.urlsFallback || [])];
+    }
+  } catch (error) {
+    console.warn('   ⚠️ Erro ao buscar config do CAPES, usando URLs padrão');
+  }
 
   try {
     console.log('\n🌐 [CAPES] Iniciando busca de editais...');
+    pipelineLogger.logBusca(`CAPES: Iniciando busca`);
 
     let response = null;
     let urlUsada = '';
@@ -357,6 +458,16 @@ export async function buscarEditaisCapes(): Promise<Edital[]> {
         continue;
       }
 
+      const idEdital = `capes-${Buffer.from(titulo).toString('base64').substring(0, 10)}`;
+      const urlCompleta = link && !link.startsWith('http')
+        ? `https://www.gov.br${link}`
+        : (link || 'https://www.gov.br/capes/pt-br/acesso-a-informacao/editais');
+
+      if (await isEditalExcluido(idEdital, urlCompleta)) {
+        console.log(`   ⏭️ [CAPES] Edital [${idEdital}] já está excluído no banco de dados. Pulando.`);
+        continue;
+      }
+
       // Validação com whitelist
       const validacaoWhitelist = validarWhitelistTI(titulo, '');
       
@@ -367,18 +478,32 @@ export async function buscarEditaisCapes(): Promise<Edital[]> {
 
       // Validação com OpenAI
       try {
-        const validacaoIA = await validarComOpenAI(
-          titulo,
-          '',
-          undefined,
-          'CAPES',
-          validacaoWhitelist.termosBranco
-        );
+        let validacaoIA;
+        try {
+          validacaoIA = await validarComOpenAI(
+            titulo,
+            '',
+            undefined,
+            'CAPES',
+            validacaoWhitelist.termosBranco
+          );
+        } catch (err) {
+          console.warn(`   ⚠️ Erro OpenAI (CAPES): ${(err as Error).message}`);
+          validacaoIA = {
+            ok: false as const,
+            válido: false as const,
+            erroTipo: 'unknown' as const,
+            mensagem: (err as Error).message,
+            modelo: 'unknown'
+          };
+        }
 
         const passuBlacklist = validarBlacklist(titulo, '');
 
-        if (!validacaoIA.válido || !passuBlacklist) {
+        const rejeitadoPelaIA = validacaoIA.ok && !validacaoIA.válido;
+        if (rejeitadoPelaIA || !passuBlacklist) {
           rejeitados++;
+          pipelineLogger.logResultado(idEdital, titulo, 'rejeitado', rejeitadoPelaIA ? 'IA (OpenAI)' : 'Blacklist');
           continue;
         }
 
@@ -398,18 +523,33 @@ export async function buscarEditaisCapes(): Promise<Edital[]> {
           criadoEm: new Date().toISOString(),
           
           // Campos TI
-          tecnologiaFoco: validacaoIA.tecnologia,
-          tipoFerramenta: validacaoIA.tipo,
-          scoreRelevancia: validacaoIA.score,
-          scoreConfiancaIA: validacaoIA.confiança,
-          validadoPorIA: true,
+          tecnologiaFoco: validacaoIA.ok ? validacaoIA.tecnologia : undefined,
+          tipoFerramenta: validacaoIA.ok ? validacaoIA.tipo : undefined,
+          scoreRelevancia: validacaoIA.ok ? validacaoIA.score : 0,
+          scoreConfiancaIA: validacaoIA.ok ? validacaoIA.confiança : 0,
+          validadoPorIA: validacaoIA.ok,
           palavrasChaveEncontradas: validacaoWhitelist.termosBranco,
-          dataValidacaoIA: new Date().toISOString()
+          dataValidacaoIA: new Date().toISOString(),
+          statusAnalise: validacaoIA.ok ? undefined : 'duvida',
+          foraDoEscopo: validacaoIA.ok ? false : null,
+          motivosPontuacao: validacaoIA.ok ? undefined : [
+            validacaoIA.erroTipo === 'timeout'
+              ? `Falha temporária na classificação OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'rate_limit'
+              ? `Rate limit da OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'auth'
+              ? `Erro de autenticação da OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'parse'
+              ? `Resposta inválida da OpenAI: ${validacaoIA.mensagem}`
+              : `Falha temporária na classificação OpenAI: ${validacaoIA.mensagem}`
+          ]
         };
 
         editaisValidados.push(edital);
         console.log(`   ✅ [${editaisValidados.length}] ${titulo.substring(0, 50)}`);
+        pipelineLogger.logResultado(idEdital, titulo, 'salvo', 'IA (OpenAI)');
       } catch (err) {
+        console.warn(`   ⚠️ Erro ao processar edital CAPES: ${(err as Error).message}`);
         rejeitados++;
       }
 
@@ -418,6 +558,7 @@ export async function buscarEditaisCapes(): Promise<Edital[]> {
     }
 
      console.log(`\n📊 [CAPES] Resultado: ${editaisValidados.length} válidos, ${rejeitados} rejeitados`);
+     pipelineLogger.logBusca(`CAPES concluído: ${editaisValidados.length} válidos, ${rejeitados} rejeitados`);
      return editaisValidados;
 
     } catch (error) {
@@ -444,6 +585,7 @@ export async function buscarEditaisMinisterioCiencia(): Promise<Edital[]> {
 
   try {
     console.log('\n🌐 [Ministério da Ciência] Iniciando busca de editais e eventos científicos...');
+    pipelineLogger.logBusca(`MCTI: Iniciando busca`);
 
     let response = null;
     let urlUsada = '';
@@ -517,6 +659,12 @@ export async function buscarEditaisMinisterioCiencia(): Promise<Edital[]> {
 
       linksProcessados.add(linkNormalizado);
 
+      const idEdital = `mcti-${Buffer.from(titulo).toString('base64').substring(0, 10)}`;
+      if (await isEditalExcluido(idEdital, linkNormalizado)) {
+        console.log(`   ⏭️ [MCTI] Edital [${idEdital}] já está excluído no banco de dados. Pulando.`);
+        continue;
+      }
+
       // Verificar se é evento científico ou chamada pública de pesquisa
       const temPalavraEvento = palavrasEventos.some(p => textoComposto.includes(p));
       const temPalavraCiencia = palavrasCiencia.some(p => textoComposto.includes(p));
@@ -535,19 +683,33 @@ export async function buscarEditaisMinisterioCiencia(): Promise<Edital[]> {
 
       // Validação com OpenAI
       try {
-        const validacaoIA = await validarComOpenAI(
-          titulo,
-          descricao,
-          undefined,
-          'Ministério da Ciência do Brasil',
-          validacaoWhitelist.termosBranco,
-          ehEventoCientifico ? 'evento_cientifico' : undefined
-        );
+        let validacaoIA;
+        try {
+          validacaoIA = await validarComOpenAI(
+            titulo,
+            descricao,
+            undefined,
+            'Ministério da Ciência do Brasil',
+            validacaoWhitelist.termosBranco,
+            ehEventoCientifico ? 'evento_cientifico' : undefined
+          );
+        } catch (err) {
+          console.warn(`   ⚠️ Erro OpenAI (Ministério da Ciência): ${(err as Error).message}`);
+          validacaoIA = {
+            ok: false as const,
+            válido: false as const,
+            erroTipo: 'unknown' as const,
+            mensagem: (err as Error).message,
+            modelo: 'unknown'
+          };
+        }
 
         const passuBlacklist = validarBlacklist(titulo, descricao);
 
-        if (!validacaoIA.válido || !passuBlacklist) {
+        const rejeitadoPelaIA = validacaoIA.ok && !validacaoIA.válido;
+        if (rejeitadoPelaIA || !passuBlacklist) {
           rejeitados++;
+          pipelineLogger.logResultado(idEdital, titulo, 'rejeitado', rejeitadoPelaIA ? 'IA (OpenAI)' : 'Blacklist');
           continue;
         }
 
@@ -563,13 +725,26 @@ export async function buscarEditaisMinisterioCiencia(): Promise<Edital[]> {
           criadoEm: new Date().toISOString(),
           
           // Campos TI/Pesquisa
-          tecnologiaFoco: validacaoIA.tecnologia,
-          tipoFerramenta: validacaoIA.tipo,
-          scoreRelevancia: validacaoIA.score,
-          scoreConfiancaIA: validacaoIA.confiança,
-          validadoPorIA: true,
+          tecnologiaFoco: validacaoIA.ok ? validacaoIA.tecnologia : undefined,
+          tipoFerramenta: validacaoIA.ok ? validacaoIA.tipo : undefined,
+          scoreRelevancia: validacaoIA.ok ? validacaoIA.score : 0,
+          scoreConfiancaIA: validacaoIA.ok ? validacaoIA.confiança : 0,
+          validadoPorIA: validacaoIA.ok,
           palavrasChaveEncontradas: validacaoWhitelist.termosBranco,
           dataValidacaoIA: new Date().toISOString(),
+          statusAnalise: validacaoIA.ok ? undefined : 'duvida',
+          foraDoEscopo: validacaoIA.ok ? false : null,
+          motivosPontuacao: validacaoIA.ok ? undefined : [
+            validacaoIA.erroTipo === 'timeout'
+              ? `Falha temporária na classificação OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'rate_limit'
+              ? `Rate limit da OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'auth'
+              ? `Erro de autenticação da OpenAI: ${validacaoIA.mensagem}`
+              : validacaoIA.erroTipo === 'parse'
+              ? `Resposta inválida da OpenAI: ${validacaoIA.mensagem}`
+              : `Falha temporária na classificação OpenAI: ${validacaoIA.mensagem}`
+          ],
           
           // Marcar se é evento científico
           tipoEdital: ehEventoCientifico ? 'evento_cientifico' : 'chamada_publica'
@@ -578,6 +753,7 @@ export async function buscarEditaisMinisterioCiencia(): Promise<Edital[]> {
         editaisValidados.push(edital);
         console.log(`   ✅ [${editaisValidados.length}] ${titulo.substring(0, 50)}`);
       } catch (err) {
+        console.warn(`   ⚠️ Erro ao processar edital Ministério da Ciência: ${(err as Error).message}`);
         rejeitados++;
       }
 

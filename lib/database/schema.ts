@@ -25,7 +25,7 @@ export const editais = sqliteTable('editais', {
     enum: ['Aberto', 'Prorrogado', 'Em Analise', 'Fechado']
   }).notNull().default('Aberto'),
   statusAnalise: text('status_analise', {
-    enum: ['pendente', 'pdf_baixado', 'analisado', 'sem_pdf', 'descartado', 'erro']
+    enum: ['pendente', 'pdf_baixado', 'analisado', 'sem_pdf', 'descartado', 'erro', 'duvida']
   }).default('pendente'),
   modalidade: text('modalidade'),
   abrangencia: text('abrangencia'),
@@ -255,13 +255,27 @@ export const arquivosAnexosRelations = relations(arquivosAnexos, ({ one }) => ({
 }));
 
 // ============================================================
-// TABELA MOTIVOS DE PONTUACAO
+// TABELA MOTIVOS DE PONTUACAO (expandida com auditoria de filtros)
 // ============================================================
 export const motivosPontuacao = sqliteTable('motivos_pontuacao', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   editalId: text('edital_id').notNull().references(() => editais.id, { onDelete: 'cascade' }),
   motivo: text('motivo').notNull(),
-});
+  // Fonte da decisão — de onde veio este motivo
+  fonte: text('fonte', {
+    enum: ['whitelist', 'blacklist', 'ia', 'fallback', 'decisao']
+  }).notNull().default('whitelist'),
+  // Pontuação parcial atribuída especificamente por este motivo (positivo ou negativo)
+  scoreParcial: integer('score_parcial'),
+  // Score total acumulado do edital no momento em que este motivo foi registrado
+  scoreFinal: integer('score_final'),
+  // JSON com dados contextuais extras (termos encontrados, categoria, tipo de erro, etc.)
+  detalhes: text('detalhes'),
+  criadoEm: text('criado_em').default('CURRENT_TIMESTAMP'),
+}, (table) => ({
+  editalFonteIdx: index('idx_motivos_edital_fonte').on(table.editalId, table.fonte),
+  fonteIdx: index('idx_motivos_fonte').on(table.fonte),
+}));
 
 export const motivosPontuacaoRelations = relations(motivosPontuacao, ({ one }) => ({
   edital: one(editais, {
@@ -413,3 +427,61 @@ export const logsSistemaRelations = relations(logsSistema, ({ one }) => ({
     references: [usuarios.id],
   }),
 }));
+
+// ============================================================
+// TABELA JOBS
+// ============================================================
+export const jobs = sqliteTable('jobs', {
+  id: text('id').primaryKey(),
+  status: text('status', {
+    enum: ['PENDENTE', 'RODANDO', 'CONCLUIDO', 'ERRO']
+  }).notNull().default('PENDENTE'),
+  fase: text('fase', {
+    enum: ['BUSCA', 'DOWNLOAD', 'ANALISE', 'NOTIFICACAO']
+  }),
+  // Contadores de progresso por fase
+  totalEncontrados:  integer('total_encontrados').default(0),
+  totalValidados:    integer('total_validados').default(0),
+  totalDownloads:    integer('total_downloads').default(0),
+  totalAnalisados:   integer('total_analisados').default(0),
+  totalErros:        integer('total_erros').default(0),
+  // Detalhes de erro parcial (JSON stringificado)
+  erroDetalhes:      text('erro_detalhes'),
+  // Timestamps ISO 8601
+  iniciadoEm:        text('iniciado_em').notNull(),
+  finalizadoEm:      text('finalizado_em'),
+  atualizadoEm:      text('atualizado_em').notNull(),
+}, (table) => {
+    return {
+      statusIdx: index('idx_jobs_status').on(table.status),
+      iniciadoEmIdx: index('idx_jobs_iniciado_em').on(table.iniciadoEm),
+    };
+  });
+
+// ============================================================
+// TABELA PORTAIS (Configuração de fontes de editais)
+// ============================================================
+export const portais = sqliteTable('portais', {
+  id: text('id').primaryKey(),                    // ex: "finep", "cnpq", "capes"
+  nome: text('nome').notNull(),                   // ex: "FINEP - Chamadas Públicas"
+  urlBusca: text('url_busca').notNull(),          // URL principal
+  urlsFallback: text('urls_fallback'),            // JSON array de URLs alternativas
+  tipo: text('tipo', {
+    enum: ['rss', 'html', 'api', 'session']
+  }).notNull(),                                   // Tipo de scraper
+  categoria: text('categoria').notNull(),         // ex: "Inovação e Tecnologia"
+  ativo: integer('ativo', { mode: 'boolean' }).default(true),  // Ativo/inativo
+  scraperModule: text('scraper_module'),          // ex: "finep", "cnpq", "capes", "prosas"
+  intervaloMinutos: integer('intervalo_minutos').default(60),
+  ultimoScan: text('ultimo_scan'),                // ISO timestamp
+  // Credenciais (opcional, para portais que precisam auth)
+  credEmail: text('cred_email'),                  // Email para auth (opcional)
+  // Timestamps
+  criadoEm: text('criado_em').notNull(),
+  atualizadoEm: text('atualizado_em').notNull(),
+}, (table) => {
+  return {
+    ativoIdx: index('idx_portais_ativo').on(table.ativo),
+    categoriaIdx: index('idx_portais_categoria').on(table.categoria),
+  };
+});

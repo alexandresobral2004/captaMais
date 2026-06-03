@@ -55,6 +55,7 @@ export class SearchRepository extends BaseRepository {
       FROM editais e
       JOIN editais_fts ON e.rowid = editais_fts.rowid
       WHERE editais_fts MATCH ?
+      AND e.deleted_at IS NULL
       ${whereClause}
       ORDER BY rank
       LIMIT ? OFFSET ?
@@ -66,6 +67,7 @@ export class SearchRepository extends BaseRepository {
       FROM editais e
       JOIN editais_fts ON e.rowid = editais_fts.rowid
       WHERE editais_fts MATCH ?
+      AND e.deleted_at IS NULL
       ${whereClause}
     `;
 
@@ -98,16 +100,16 @@ export class SearchRepository extends BaseRepository {
     const rawDb = getRawDb();
 
     const orgaos = rawDb
-      .prepare(`SELECT DISTINCT orgao FROM editais ORDER BY orgao`)
+      .prepare(`SELECT DISTINCT orgao FROM editais WHERE deleted_at IS NULL ORDER BY orgao`)
       .all() as any[];
 
     const statusList = rawDb
-      .prepare(`SELECT DISTINCT status FROM editais ORDER BY status`)
+      .prepare(`SELECT DISTINCT status FROM editais WHERE deleted_at IS NULL ORDER BY status`)
       .all() as any[];
 
     const tecnologias = rawDb
       .prepare(
-        `SELECT DISTINCT tecnologia_foco FROM editais WHERE tecnologia_foco IS NOT NULL ORDER BY tecnologia_foco`
+        `SELECT DISTINCT tecnologia_foco FROM editais WHERE tecnologia_foco IS NOT NULL AND deleted_at IS NULL ORDER BY tecnologia_foco`
       )
       .all() as any[];
 
@@ -122,34 +124,34 @@ export class SearchRepository extends BaseRepository {
     const rawDb = getRawDb();
 
     const total = rawDb
-      .prepare(`SELECT COUNT(*) as total FROM editais`)
+      .prepare(`SELECT COUNT(*) as total FROM editais WHERE deleted_at IS NULL`)
       .get() as any;
 
     const porStatus = rawDb
       .prepare(
-        `SELECT status, COUNT(*) as count FROM editais GROUP BY status`
+        `SELECT status, COUNT(*) as count FROM editais WHERE deleted_at IS NULL GROUP BY status`
       )
       .all() as any[];
 
     const porOrgao = rawDb
       .prepare(
-        `SELECT orgao, COUNT(*) as count FROM editais GROUP BY orgao ORDER BY count DESC LIMIT 10`
+        `SELECT orgao, COUNT(*) as count FROM editais WHERE deleted_at IS NULL GROUP BY orgao ORDER BY count DESC LIMIT 10`
       )
       .all() as any[];
 
     const porTecnologia = rawDb
       .prepare(
-        `SELECT tecnologia_foco, COUNT(*) as count FROM editais WHERE tecnologia_foco IS NOT NULL GROUP BY tecnologia_foco ORDER BY count DESC LIMIT 10`
+        `SELECT tecnologia_foco, COUNT(*) as count FROM editais WHERE tecnologia_foco IS NOT NULL AND deleted_at IS NULL GROUP BY tecnologia_foco ORDER BY count DESC LIMIT 10`
       )
       .all() as any[];
 
     const comPdf = rawDb
-      .prepare(`SELECT COUNT(*) as total FROM editais WHERE pdf_path IS NOT NULL`)
+      .prepare(`SELECT COUNT(*) as total FROM editais WHERE pdf_path IS NOT NULL AND deleted_at IS NULL`)
       .get() as any;
 
     const comAnalise = rawDb
       .prepare(
-        `SELECT COUNT(*) as total FROM analise_ia`
+        `SELECT COUNT(*) as total FROM analise_ia JOIN editais ON analise_ia.edital_id = editais.id WHERE editais.deleted_at IS NULL`
       )
       .get() as any;
 

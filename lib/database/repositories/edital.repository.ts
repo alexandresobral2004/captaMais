@@ -49,7 +49,7 @@ export interface CreateEditalDTO {
   scoreConfiancaIa?: number;
   validadoPorIa?: boolean;
   motivoRejeicao?: string;
-  foraDoEscopo?: boolean;
+  foraDoEscopo?: boolean | null;
   dataValidacaoIa?: string;
   scorePontuacao?: number;
   nivelPontuacao?: string;
@@ -271,7 +271,8 @@ export class EditalRepository extends BaseRepository {
   async count(): Promise<number> {
     const result = await this.database
       .select({ count: sql<number>`count(*)` })
-      .from(editais);
+      .from(editais)
+      .where(sql`${editais.deletedAt} IS NULL`);
     return Number(result[0]?.count || 0);
   }
 
@@ -282,6 +283,7 @@ export class EditalRepository extends BaseRepository {
         count: sql<number>`count(*)`,
       })
       .from(editais)
+      .where(sql`${editais.deletedAt} IS NULL`)
       .groupBy(editais.status);
 
     const counts: Record<string, number> = {};
@@ -295,7 +297,10 @@ export class EditalRepository extends BaseRepository {
     return this.database
       .select()
       .from(editais)
-      .where(sql`${editais.pdfPath} IS NOT NULL`);
+      .where(and(
+        sql`${editais.pdfPath} IS NOT NULL`,
+        sql`${editais.deletedAt} IS NULL`
+      ));
   }
 
   async findByLink(link: string) {
